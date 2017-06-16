@@ -30,16 +30,20 @@ struct TcpSocket{
 	SocketData socket;
 };
 
-struct CommandData{
+/*struct CommandData{
 	char command[30];
 	char phoneId[16];
 	char phoneKey[8];
 	char data[256];
-};
+	boolean response;//if the response is ACK/NACK, then response is true
+	boolean error;//if NACK the error is true, and data contains error message
+};*/
 extern char commands[][30];
 
 enum UDPCommand:uint8_t{
 	UDP_PAIR_BROADCAST,
+	UDP_PAIR_BROADCAST_ACCEPT,
+	UDP_PAIR_BROADCAST_REJECT,
 	UDP_CONNECT_BC_REQUEST,
 	UDP_CONNECT_BC_RESPONSE,
 	UDP_CONNECT_BC_RETRY,

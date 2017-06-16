@@ -19,8 +19,8 @@
 #define ICACHE_RAM_ATTR     __attribute__((section(".iram.text")))//required for timer
 #define TIMER_DELAY 45  //19.25khz //46 for 22050 (1,000,000/22050)
 //#define TIMER_DELAY 500000// 1 sec
-#define INBUFSIZE 2920
-#define OUTBUFSIZE 2920
+#define INBUFSIZE 2920/2
+#define OUTBUFSIZE 2920/2
 #define DEFAULT_SOFT_AP_SSID "ESPAP"
 //#define MAX_REC_LENGTH 500000
 #define CONFIG_FILE "/config.txt"
@@ -94,13 +94,31 @@ WSClientWrapper *heavyProcessResponseClient;
 WSClientWrapper *currentWSClient;
 
 
-uint8_t outBuffer[OUTBUFSIZE];
-uint8_t inBuffer[INBUFSIZE];
 boolean tcpIpSocketConnected=false;
 boolean tcpIpCommStarted=false;
 
+//double buffering
+uint8_t rbuffer[2][INBUFSIZE];
+uint8_t rbufferState[2]={0,0};
+int readBufferStart[2]={0,0};
+int readBufferLast[2]={0,0};
+uint8_t readBufferNextToRead=0;//0/1
+uint8_t readBufferNextToFill=0;//0/1
+
+uint8_t wbuffer[2][OUTBUFSIZE];
+uint8_t wbufferState[2]={0,0};
+int writeBufferStart[2]={0,0};
+int writeBufferLast[2]={OUTBUFSIZE,OUTBUFSIZE};
+uint8_t writeBufferNextToRead=0;//0/1
+uint8_t writeBufferNextToFill=0;//0/1
+uint8_t sample=0, prevSample=0;
+
+
+
 char commands[][30]={
 		"UDP_PAIR_BROADCAST",
+		"UDP_PAIR_BROADCAST_ACCEPT",
+		"UDP_PAIR_BROADCAST_REJECT",
 		"UDP_CONNECT_BC_REQUEST",
 		"UDP_CONNECT_BC_RESPONSE",
 		"UDP_CONNECT_BC_RETRY",
@@ -133,9 +151,12 @@ char commands[][30]={
 void setup(){
 	Serial.begin(1000000);//20usec/byte
 	//Serial.begin(500000);
-	INFO_PRINTLN("\nStarting TestESPTransceiverSoftAPV5...");
-	INFO_PRINTLN("Configuring SPI flash");
-
+	INFO_PRINTLN(F("\nStarting TestESPTransceiverSoftAPV5..."));
+	INFO_PRINTLN(F("Configuring SPI flash"));
+	/*int i=100;
+	printf_P(PSTR("value of i is: %d"), i);
+	os_printf(PSTR("value of i is: %d"), i);
+	*/
 	SPIFFS.begin();
 	setupSDCard();
 	readConfigFileAndConfigureWifi();
@@ -152,23 +173,23 @@ void setup(){
 
 
 void setupSDCard(){
-	DEBUG_PRINTLN("Initializing SD card...");
+	DEBUG_PRINTLN(F("Initializing SD card..."));
 
 	if (!SD.begin(SD_CARD_CHIP_SELECT)) {
-		DEBUG_PRINTLN("SD card initialization failed!");
+		DEBUG_PRINTLN(F("SD card initialization failed!"));
 		return;
 	}
 	sdCardPresent=true;
-	DEBUG_PRINTLN("sd card initialization done.");
+	DEBUG_PRINTLN(F("sd card initialization done."));
 
 	recordingFileFromMic=SD.open("testsd.txt", FILE_WRITE_NO_APPEND);
 	if(recordingFileFromMic){
-		DEBUG_PRINTF("File Open Success: %s\n",recordingFileFromMic.name());
+		DEBUG_PRINTF_P("File Open Success: %s\n",recordingFileFromMic.name());
 		recordingFileFromMic.println("testing file write");
 		recordingFileFromMic.close();
 		SD.remove("testsd.txt");
 	}else{
-		DEBUG_PRINTLN("File open failed, restarting...");
+		DEBUG_PRINTLN(F("File open failed, restarting..."));
 		delay(1000);
 		ESP.restart();
 	}
@@ -210,7 +231,7 @@ void readConfigFileAndConfigureWifi(){
 		properties.put("device_id",DEFAULT_DEVICE_ID);
 
 		properties.store(CONFIG_FILE);
-		INFO_PRINTLN("Properties file not found, creating default, restarting");
+		INFO_PRINTLN(F("Properties file not found, creating default, restarting"));
 		delay(1000);
 		ESP.restart();
 	}
@@ -219,20 +240,20 @@ void readConfigFileAndConfigureWifi(){
 
 void setupEspRadioAsSoftAP(const char *ssid){
 	yield();
-	INFO_PRINTLN("Configuring ESP radio access point as SOFT_AP mode...");
+	INFO_PRINTLN(F("Configuring ESP radio access point as SOFT_AP mode..."));
 	WiFi.mode(WIFI_AP);//Access point mode only
 	/* You can remove the password parameter if you want the AP to be open. */
 	WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));//use to set custom IP
 	WiFi.softAP(ssid);//starting the soft ap
 
 	IPAddress myIP = WiFi.softAPIP();//get the soft AP IP
-	INFO_PRINT("AP IP address: ");INFO_PRINTLN(myIP);
+	INFO_PRINT(F("AP IP address: "));INFO_PRINTLN(myIP);
 	//!!VVI!!
 	WiFi.disconnect();//disconnect the wifi so that it does not search for wifi host to connect to!
 	//if it is not disconnected it would scan for wifi hosts and reduce performance.
 #ifdef INFO
 	WiFi.printDiag(Serial);//printing wifi details
-	INFO_PRINTLN("#################");
+	INFO_PRINTLN(F("#################"));
 #endif
 }
 
@@ -241,7 +262,7 @@ void setupEspRadioAsStation(const char *softAPSsid, const char *ssid, const char
 	/* You can remove the password parameter if you want the AP to be open. */
 	WiFi.softAP(softAPSsid);
 	IPAddress myIP = WiFi.softAPIP();
-	INFO_PRINT("AP IP address: ");DEBUG_PRINTLN(myIP);
+	INFO_PRINT(F("AP IP address: "));DEBUG_PRINTLN(myIP);
 	WiFi.begin(ssid, password);
 	uint32_t delayMs=10000+millis();
 	while (WiFi.status() != WL_CONNECTED) {
@@ -256,10 +277,10 @@ void setupEspRadioAsStation(const char *softAPSsid, const char *ssid, const char
 		}
 	}
 #ifdef INFO
-	INFO_PRINT("WiFi ip is: ");INFO_PRINTLN(WiFi.localIP());
-	INFO_PRINTLN("#################");
+	INFO_PRINT(F("WiFi ip is: "));INFO_PRINTLN(WiFi.localIP());
+	INFO_PRINTLN(F("#################"));
 	WiFi.printDiag(Serial);
-	INFO_PRINTLN("setup done");
+	INFO_PRINTLN(F("setup done"));
 #endif
 }
 
@@ -293,26 +314,27 @@ boolean hasIncomingPairingRequest(){
 
 void processNotify(){
 	if(hasIncomingNotificationRequest()){
-		DEBUG_PRINTLN("Notify requested, sending notify");
+		DEBUG_PRINTLN(F("Notify requested, sending notify"));
 		//if out of home active then immediately play out of home message
 		if(properties.get("not_at_home").equals("true")){
 			startPlayback(NOT_AT_HOME,REQUEST_SOURCE_NOTIFY);
 			notifyFlowInProgress=false;
 		}else{
 			//startPlayback(PLEASE_WAIT,REQUEST_SOURCE_NOTIFY);
-			char *notifyResponse=clientManager.notify(20000);
+			char notifyResponse[256];
+			clientManager.notify(20000, notifyResponse);
 			if(strlen(notifyResponse)>0){
 				//server notified, await tcp/ip communication
-				DEBUG_PRINTLN("server notified, await tcp/ip communication");
+				DEBUG_PRINTLN(F("server notified, await tcp/ip communication"));
 				if(strstr(notifyResponse, "NOTIFY:ACK")!=NULL){
 					//notify accepted, do nothing
 					notifyFlowInProgress=false;
-					DEBUG_PRINTLN("notify accepted, await tcp/ip communication");
+					DEBUG_PRINTLN(F("notify accepted, await tcp/ip communication"));
 					//reenable notification
 					setupNotifyGPIO();
 				}else if(strstr(notifyResponse, "NOTIFY:NACK")!=NULL){
 					//notification not accepted
-					DEBUG_PRINTLN("notify not accepted, play NOBODY_RESPONDING");
+					DEBUG_PRINTLN(F("notify not accepted, play NOBODY_RESPONDING"));
 					startPlayback(NOBODY_RESPONDING,REQUEST_SOURCE_NOTIFY);
 				}
 			}else{
@@ -323,7 +345,7 @@ void processNotify(){
 				//3. startRecordFromMic(messageFileName),
 				//4. bufferedRecordFromMic() does the recording, on MAX_RECORD_LEN condition do next
 				//5. startPlayback(THANK_YOU,REQUEST_SOURCE_NOTIFY);
-				DEBUG_PRINTLN("notification response not received, playing NOBODY_RESPONDING");
+				DEBUG_PRINTLN(F("notification response not received, playing NOBODY_RESPONDING"));
 				startPlayback(NOBODY_RESPONDING,REQUEST_SOURCE_NOTIFY);
 			}
 		}
@@ -336,7 +358,7 @@ void processPairing(){
 	if(hasIncomingPairingRequest()){
 		clientManager.pair();
 		pairingFlowInProgress=false;
-		DEBUG_PRINTLN("Reenabling pairing gpio");
+		DEBUG_PRINTLN(F("Reenabling pairing gpio"));
 		setupPairingGPIO();
 	}
 }
@@ -362,33 +384,33 @@ void loop(void){
 
 void gpioNotifyInterrupt() {
 	detachInterrupt(NOTIFY_GPIO_PIN);
-	DEBUG_PRINTLN("Notified externally");
+	DEBUG_PRINTLN(F("Notified externally"));
 	notifyRequested=true;
 }
 
 void gpioPairingInterrupt() {
 	detachInterrupt(PAIR_GPIO_PIN);
-	DEBUG_PRINTLN("Pairing Initiated");
+	DEBUG_PRINTLN(F("Pairing Initiated"));
 	pairingRequested=true;
 }
 
 
 void setupDoorControl(){
-	INFO_PRINTLN("setupDoorControl called");
+	INFO_PRINTLN(F("setupDoorControl called"));
 	pinMode(OPEN_DOOR_PIN, OUTPUT);
 	pinMode(CLOSE_DOOR_PIN, OUTPUT);
 	digitalWrite(OPEN_DOOR_PIN, LOW);
 	digitalWrite(CLOSE_DOOR_PIN, LOW);
 }
 void setupNotifyGPIO(){
-	INFO_PRINTLN("setupNotifyGPIO called");
+	INFO_PRINTLN(F("setupNotifyGPIO called"));
 	pinMode(BUILTIN_LED, OUTPUT);
 	pinMode(NOTIFY_GPIO_PIN,INPUT);
 	attachInterrupt(NOTIFY_GPIO_PIN, gpioNotifyInterrupt, CHANGE);
 }
 
 void setupPairingGPIO(){
-	INFO_PRINTLN("setupPairingGPIO called");
+	INFO_PRINTLN(F("setupPairingGPIO called"));
 	pinMode(PAIR_GPIO_PIN,INPUT);
 	attachInterrupt(PAIR_GPIO_PIN, gpioPairingInterrupt, CHANGE);
 }
@@ -407,12 +429,12 @@ void notifyArduino(int state){
 }
 
 
-void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClient){
+void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsClient){
 	currentWSClient=wsClient;
 #ifdef DEBUG
 	getFreeHeap();
 #endif
-	if(strcmp(commands[START_COMM], commandData.command)==0){
+	if(strcmp(commands[START_COMM], commandData.getCommand())==0){
 		if(!tcpIpCommStarted){
 			//preparing response
 			strcpy(responseBuffer,commands[START_COMM]);
@@ -432,7 +454,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commands[STOP_COMM], commandData.command)==0){
+	if(strcmp(commands[STOP_COMM], commandData.getCommand())==0){
 		strcpy(responseBuffer,commands[STOP_COMM]);
 		if(tcpIpCommStarted){
 			tcpIpCommStarted=false;
@@ -446,20 +468,20 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commands[HELLO], commandData.command)==0){
+	if(strcmp(commands[HELLO], commandData.getCommand())==0){
 		testFileWriteSD();
 		strcpy(responseBuffer,commands[HELLO]);
 		strcat(responseBuffer,":ACK:TestESPTransceiverSoftAPV5");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commands[RESET], commandData.command)==0){
+	if(strcmp(commands[RESET], commandData.getCommand())==0){
 		strcpy(responseBuffer,commands[RESET]);
 		strcat(responseBuffer,":ACK");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 		delay(1000);
 		ESP.restart();
 	}
-	if(strcmp(commands[OPEN_DOOR], commandData.command)==0){
+	if(strcmp(commands[OPEN_DOOR], commandData.getCommand())==0){
 		digitalWrite(OPEN_DOOR_PIN, HIGH);
 		strcpy(responseBuffer,commands[OPEN_DOOR]);
 		strcat(responseBuffer,":ACK");
@@ -467,7 +489,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		delay(500);
 		digitalWrite(OPEN_DOOR_PIN,LOW);
 	}
-	if(strcmp(commands[CLOSE_DOOR], commandData.command)==0){
+	if(strcmp(commands[CLOSE_DOOR], commandData.getCommand())==0){
 		digitalWrite(CLOSE_DOOR_PIN, HIGH);
 		strcpy(responseBuffer,commands[CLOSE_DOOR]);
 		strcat(responseBuffer,":ACK");
@@ -475,7 +497,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		delay(500);
 		digitalWrite(CLOSE_DOOR_PIN, LOW);
 	}
-	if(strcmp(commandData.command,commands[START_RECORD])==0){
+	if(strcmp(commandData.getCommand(),commands[START_RECORD])==0){
 		char * fileName=commandData.data;
 		strcpy(responseBuffer,commands[START_RECORD]);
 		if(sdCardPresent){
@@ -486,9 +508,9 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 					recordingFile=SD.open(fileNameBuffer, FILE_WRITE_NO_APPEND);
 #ifdef DEBUG
 					if(recordingFile){
-						DEBUG_PRINT("File opened success: ");DEBUG_PRINTLN(fileNameBuffer);
+						DEBUG_PRINT(F("File opened success: "));DEBUG_PRINTLN(fileNameBuffer);
 					}else{
-						DEBUG_PRINT("File opened failed: ");DEBUG_PRINTLN(fileNameBuffer);
+						DEBUG_PRINT(F("File opened failed: "));DEBUG_PRINTLN(fileNameBuffer);
 					}
 #endif
 					if(recordingFile){
@@ -508,7 +530,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[STOP_RECORD])==0){
+	if(strcmp(commandData.getCommand(),commands[STOP_RECORD])==0){
 		strcpy(responseBuffer,commands[STOP_RECORD]);
 		if(sdCardPresent){
 			if(recordInProgress){
@@ -527,7 +549,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[START_PLAY])==0){
+	if(strcmp(commandData.getCommand(),commands[START_PLAY])==0){
 		const char * fileName=commandData.data;
 		strcpy(responseBuffer,commands[START_PLAY]);
 		if(startPlayback(fileName, REQUEST_SOURCE_PHONE)){
@@ -537,7 +559,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[STOP_PLAY])==0){
+	if(strcmp(commandData.getCommand(),commands[STOP_PLAY])==0){
 		strcpy(responseBuffer,commands[STOP_PLAY]);
 		if(stopPlayback()){
 			strcat(responseBuffer,":ACK");
@@ -546,7 +568,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[MIC_RECORD_START])==0){
+	if(strcmp(commandData.getCommand(),commands[MIC_RECORD_START])==0){
 		const char * fileName=commandData.data;
 		strcpy(responseBuffer,commands[MIC_RECORD_START]);
 		if(sdCardPresent){
@@ -561,7 +583,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[MIC_RECORD_STOP])==0){
+	if(strcmp(commandData.getCommand(),commands[MIC_RECORD_STOP])==0){
 		strcpy(responseBuffer,commands[MIC_RECORD_STOP]);
 		if(sdCardPresent){
 			if(stopRecordFromMic()){
@@ -575,7 +597,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[SAVE_CONFIG])==0){
+	if(strcmp(commandData.getCommand(),commands[SAVE_CONFIG])==0){
 		const char * config=commandData.data;
 		String str(config);
 		properties.parsePropertiesAndPut(str);
@@ -585,7 +607,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		strcat(responseBuffer,":ACK");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[LOAD_CONFIG])==0){
+	if(strcmp(commandData.getCommand(),commands[LOAD_CONFIG])==0){
 		properties.print();
 		properties.load(CONFIG_FILE);
 		strcpy(responseBuffer,commands[LOAD_CONFIG]);
@@ -593,7 +615,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		strcat(responseBuffer,properties.serialize().c_str());
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[DELETE_FILE])==0){
+	if(strcmp(commandData.getCommand(),commands[DELETE_FILE])==0){
 		char * fileName=commandData.data;
 		strcpy(responseBuffer,commands[DELETE_FILE]);
 		trimPath(fileName, fileNameBuffer, false);
@@ -604,36 +626,36 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[FORMAT])==0){
+	if(strcmp(commandData.getCommand(),commands[FORMAT])==0){
 		strcpy(responseBuffer,commands[FORMAT]);
 
 		if(SPIFFS.format()){
 			strcat(responseBuffer,":ACK");
 			delay(1000);
-			DEBUG_PRINTLN("restarting nodemcu");
+			DEBUG_PRINTLN(F("restarting nodemcu"));
 			ESP.restart();
 		}else{
 			strcat(responseBuffer,":NACK:Cant format");
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[FREE_SPACE])==0){
+	if(strcmp(commandData.getCommand(),commands[FREE_SPACE])==0){
 		strcpy(responseBuffer,commands[FREE_SPACE]);
 #ifdef DEBUG
 		FSInfo fs_info;
 		SPIFFS.info(fs_info);
-		DEBUG_PRINT("TotalBytes: ");DEBUG_PRINTLN(fs_info.totalBytes);
-		DEBUG_PRINT("UsedBytes: ");DEBUG_PRINTLN(fs_info.usedBytes);
-		DEBUG_PRINT("BlockSize: ");DEBUG_PRINTLN(fs_info.blockSize);
-		DEBUG_PRINT("PageSize: ");DEBUG_PRINTLN(fs_info.pageSize);
-		DEBUG_PRINT("maxOpenFiles: ");DEBUG_PRINTLN(fs_info.maxOpenFiles);
-		DEBUG_PRINT("maxPathLength: ");DEBUG_PRINTLN(fs_info.maxPathLength);
+		DEBUG_PRINT(F("TotalBytes: "));DEBUG_PRINTLN(fs_info.totalBytes);
+		DEBUG_PRINT(F("UsedBytes: "));DEBUG_PRINTLN(fs_info.usedBytes);
+		DEBUG_PRINT(F("BlockSize: "));DEBUG_PRINTLN(fs_info.blockSize);
+		DEBUG_PRINT(F("PageSize: "));DEBUG_PRINTLN(fs_info.pageSize);
+		DEBUG_PRINT(F("maxOpenFiles: "));DEBUG_PRINTLN(fs_info.maxOpenFiles);
+		DEBUG_PRINT(F("maxPathLength: "));DEBUG_PRINTLN(fs_info.maxPathLength);
 #endif
 		strcat(responseBuffer,":ACK");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 
-	if(strcmp(commandData.command,commands[GET_MESSAGES])==0){
+	if(strcmp(commandData.getCommand(),commands[GET_MESSAGES])==0){
 		longResponseBuffer=new char[1024];
 		strcpy(longResponseBuffer,commands[GET_MESSAGES]);
 		strcat(longResponseBuffer,":ACK:");
@@ -646,30 +668,30 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 		clientManager.sendWSCommand(longResponseBuffer, wsClient);
 		delete []longResponseBuffer;
 	}
-	if(strcmp(commandData.command,commands[SD_WRITE_TEST])==0){
+	if(strcmp(commandData.getCommand(),commands[SD_WRITE_TEST])==0){
 		strcpy(responseBuffer,commands[SD_WRITE_TEST]);
 		generateRandomFileName(fileNameBuffer, NULL);
 		//trimFileName(fileNameBuffer, fileNameBuffer);
 		recordingFileFromMic=SD.open(fileNameBuffer, FILE_WRITE_NO_APPEND);
 		if(recordingFileFromMic){
-			DEBUG_PRINTF("File Open Success: %s\n",recordingFileFromMic.name());
+			DEBUG_PRINTF_P("File Open Success: %s\n",recordingFileFromMic.name());
 			recordingFileFromMic.println("testing file ");
 			recordingFileFromMic.println(fileNameBuffer);
 			recordingFileFromMic.close();
 			strcat(responseBuffer,":ACK:File Open Success");
 		}else{
-			DEBUG_PRINTLN("File open failed");
+			DEBUG_PRINTLN(F("File open failed"));
 			strcat(responseBuffer,":NACK:File open failed");
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[TEST_NOTIFY])==0){
+	if(strcmp(commandData.getCommand(),commands[TEST_NOTIFY])==0){
 		strcpy(responseBuffer,commands[TEST_NOTIFY]);
 		strcat(responseBuffer,":ACK:");
 		notifyRequested=true;
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.command,commands[RESTORE])==0){
+	if(strcmp(commandData.getCommand(),commands[RESTORE])==0){
 		char * fileName=commandData.data;
 		strcpy(responseBuffer,commands[RESTORE]);
 		if(sdCardPresent){
@@ -690,7 +712,7 @@ void processIncomingUDPCommands(CommandData commandData, WSClientWrapper *wsClie
 }
 
 void getFreeHeap(){
-	DEBUG_PRINT("Free heap is: ");DEBUG_PRINTLN(ESP.getFreeHeap());
+	DEBUG_PRINT(F("Free heap is: "));DEBUG_PRINTLN(ESP.getFreeHeap());
 }
 
 //tcp ip tcpIpSocketConnected comm methods
@@ -704,7 +726,7 @@ void setupTimer1(){
 
 void enableTimer1(){
 	if(!timer1_enabled()){
-		DEBUG_PRINTLN("Enabling timer1");
+		DEBUG_PRINTLN(F("Enabling timer1"));
 #ifdef DEBUG
 		timer1_attachInterrupt(mockPcmSamplingISR);
 #else
@@ -712,20 +734,20 @@ void enableTimer1(){
 #endif
 		timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
 		uint32_t t1=clockCyclesPerMicrosecond() / 16 * TIMER_DELAY;
-		DEBUG_PRINT("Counter: ");DEBUG_PRINTLN(t1);
+		DEBUG_PRINT(F("Counter: "));DEBUG_PRINTLN(t1);
 		timer1_write(t1); //32us = 31.250kHz sampling freq
 	}else{
-		DEBUG_PRINTLN("Timer1 already enabled");
+		DEBUG_PRINTLN(F("Timer1 already enabled"));
 	}
 }
 
 void disableTimer1(){
 	if(timer1_enabled()){
-		DEBUG_PRINTLN("Disabling timer1");
+		DEBUG_PRINTLN(F("Disabling timer1"));
 		timer1_disable();
 		timer1_detachInterrupt();
 	}else{
-		DEBUG_PRINTLN("Timer1 already disabled");
+		DEBUG_PRINTLN(F("Timer1 already disabled"));
 	}
 }
 
@@ -755,21 +777,6 @@ void processTcpIpComm(){
 		ESP.wdtEnable(0);
 	}
 }
-
-uint8_t rbuffer[2][INBUFSIZE];
-uint8_t rbufferState[2]={0,0};
-int readBufferStart[2]={0,0};
-int readBufferLast[2]={0,0};
-uint8_t readBufferNextToRead=0;//0/1
-uint8_t readBufferNextToFill=0;//0/1
-
-uint8_t wbuffer[2][OUTBUFSIZE];
-uint8_t wbufferState[2]={0,0};
-int writeBufferStart[2]={0,0};
-int writeBufferLast[2]={OUTBUFSIZE,OUTBUFSIZE};
-uint8_t writeBufferNextToRead=0;//0/1
-uint8_t writeBufferNextToFill=0;//0/1
-uint8_t sample=0, prevSample=0;
 
 
 void ICACHE_RAM_ATTR pcmSamplingISR(void){
@@ -881,11 +888,11 @@ void recordMessageFromPhone(){
 				strcpy(responseBuffer,commands[STOP_RECORD]);
 				strcat(responseBuffer,":ACK:MAX_REC_LENGTH:max file size reached");
 				clientManager.sendWSCommand(responseBuffer, heavyProcessResponseClient);
-				DEBUG_PRINT("recordMessageFromPhone stopped, max size reached, bytes: ");DEBUG_PRINTLN(recordLength);
+				DEBUG_PRINT(F("recordMessageFromPhone stopped, max size reached, bytes: "));DEBUG_PRINTLN(recordLength);
 				return;
 			}
 			size_t size=recordingFile.write(rbuffer[0],readBytes);
-			DEBUG_PRINT("written bytes: ");DEBUG_PRINTLN(size);
+			DEBUG_PRINT(F("written bytes: "));DEBUG_PRINTLN(size);
 		}
 	}
 }
@@ -902,9 +909,9 @@ void bufferedPlaybackToSpeaker(){
 			dataAvailable=playingFileFromFlash.available();
 		}
 		if(!dataAvailable){
-			DEBUG_PRINTLN("playingFile.available() is false");
+			DEBUG_PRINTLN(F("playingFile.available() is false"));
 			if(strcmp(playRequestSource,REQUEST_SOURCE_PHONE)==0){
-				DEBUG_PRINTLN("request source is phone");
+				DEBUG_PRINTLN(F("request source is phone"));
 				strcpy(responseBuffer,commands[STOP_PLAY]);
 				if(stopPlayback()){
 					strcat(responseBuffer,":ACK:FILE_END:Playback completed");
@@ -912,10 +919,10 @@ void bufferedPlaybackToSpeaker(){
 					strcat(responseBuffer,":ACK:FILE_END:File end reached and playback stopped");
 				}
 				clientManager.sendWSCommand(responseBuffer, heavyProcessResponseClient);
-				DEBUG_PRINT("sent message is: ");DEBUG_PRINT(responseBuffer);
+				DEBUG_PRINT(F("sent message is: "));DEBUG_PRINT(responseBuffer);
 
 			}else if(strcmp(playRequestSource,REQUEST_SOURCE_NOTIFY)==0){
-				DEBUG_PRINTLN("request source is notify");
+				DEBUG_PRINTLN(F("request source is notify"));
 				stopPlayback();
 				if(sdCardPresent){
 					//record message
@@ -923,16 +930,16 @@ void bufferedPlaybackToSpeaker(){
 
 					if(startRecordFromMic(fileNameBuffer,REQUEST_SOURCE_NOTIFY)){
 						//recording started
-						DEBUG_PRINTLN("recording started");
+						DEBUG_PRINTLN(F("recording started"));
 					}
 				}else{
 					//play thank you and close notification process
-					DEBUG_PRINT("playing THANK_YOU: ");DEBUG_PRINTLN(recordRequestSource);
+					DEBUG_PRINT(F("playing THANK_YOU: "));DEBUG_PRINTLN(recordRequestSource);
 					startPlayback(THANK_YOU, REQUEST_SOURCE_NOTIFY_STOP);
 				}
 			}else if(strcmp(playRequestSource,REQUEST_SOURCE_NOTIFY_STOP)==0){
 				//do nothing
-				DEBUG_PRINTLN("request source is notify");
+				DEBUG_PRINTLN(F("request source is notify"));
 				stopPlayback();
 				notifyFlowInProgress=false;
 			}
@@ -959,12 +966,12 @@ void bufferedRecordFromMic(){//it is the reader of the buffer
 		ESP.wdtDisable();
 		recordLength+=writeBufferLast[writeBufferNextToRead];
 		if(recordLength>maxRecLen){
-			DEBUG_PRINT("bufferedRecordFromMic max file size reached, bytes: ");DEBUG_PRINTLN(recordLength);
+			DEBUG_PRINT(F("bufferedRecordFromMic max file size reached, bytes: "));DEBUG_PRINTLN(recordLength);
 			recordLength=0;
 			stopRecordFromMic();
-			DEBUG_PRINT("bufferedRecordFromMic recordRequestSource: ");DEBUG_PRINTLN(recordRequestSource);
+			DEBUG_PRINT(F("bufferedRecordFromMic recordRequestSource: "));DEBUG_PRINTLN(recordRequestSource);
 			if(strcmp(recordRequestSource,REQUEST_SOURCE_NOTIFY)==0){
-				DEBUG_PRINT("playing THANK_YOU: ");DEBUG_PRINTLN(recordRequestSource);
+				DEBUG_PRINT(F("playing THANK_YOU: "));DEBUG_PRINTLN(recordRequestSource);
 				startPlayback(THANK_YOU,REQUEST_SOURCE_NOTIFY_STOP);
 			}
 			return;
@@ -982,11 +989,11 @@ boolean startPlayback(const char * fileName, const char * requestSource){
 	boolean retVal=false;
 	strcpy(playRequestSource,requestSource);
 #ifdef DEBUG
-	DEBUG_PRINT("startPlayback file: ");DEBUG_PRINTLN(fileName);
-	DEBUG_PRINT("requestSource: ");DEBUG_PRINTLN(requestSource);
-	DEBUG_PRINT("playbackInProgress: ");DEBUG_PRINTLN(playbackInProgress);
-	DEBUG_PRINT("someHeavyProcessingInProgress: ");DEBUG_PRINTLN(someHeavyProcessingInProgress);
-	DEBUG_PRINTLN("****************************************************************");
+	DEBUG_PRINT(F("startPlayback file: "));DEBUG_PRINTLN(fileName);
+	DEBUG_PRINT(F("requestSource: "));DEBUG_PRINTLN(requestSource);
+	DEBUG_PRINT(F("playbackInProgress: "));DEBUG_PRINTLN(playbackInProgress);
+	DEBUG_PRINT(F("someHeavyProcessingInProgress: "));DEBUG_PRINTLN(someHeavyProcessingInProgress);
+	DEBUG_PRINTLN(F("****************************************************************"));
 	Serial.flush();
 	delay(1000);
 
@@ -998,7 +1005,7 @@ boolean startPlayback(const char * fileName, const char * requestSource){
 		playingFromSD=false;
 		if(sdCardPresent){
 			trimPath((char *)fileName, fileNameBuffer, false);
-			DEBUG_PRINT("Opening file: ");DEBUG_PRINTLN(fileNameBuffer);
+			DEBUG_PRINT(F("Opening file: "));DEBUG_PRINTLN(fileNameBuffer);
 			playingFileFromSD=SD.open(fileNameBuffer);
 			if(playingFileFromSD){
 				filePresent=true;
@@ -1015,7 +1022,7 @@ boolean startPlayback(const char * fileName, const char * requestSource){
 		//if file exists then attempt playback
 		if(filePresent){
 #ifdef DEBUG
-			DEBUG_PRINT("startPlayback - playback started ");
+			DEBUG_PRINT(F("startPlayback - playback started "));
 			if(sdCardPresent){
 				DEBUG_PRINTLN(playingFileFromSD.name());
 			}else{
@@ -1029,7 +1036,7 @@ boolean startPlayback(const char * fileName, const char * requestSource){
 			heavyProcessResponseClient=currentWSClient;
 			retVal=true;
 		}else{
-			DEBUG_PRINTLN("startPlayback - file read error");
+			DEBUG_PRINTLN(F("startPlayback - file read error"));
 			retVal=false;
 		}
 	}else{
@@ -1042,9 +1049,9 @@ boolean startPlayback(const char * fileName, const char * requestSource){
 boolean stopPlayback(){
 	boolean retVal=false;
 #ifdef DEBUG
-	DEBUG_PRINTLN("stopPlaybackFromFlash called");
-	DEBUG_PRINT("playbackInProgress: ");DEBUG_PRINTLN(playbackInProgress);
-	DEBUG_PRINT("someHeavyProcessingInProgress: ");DEBUG_PRINTLN(someHeavyProcessingInProgress);
+	DEBUG_PRINTLN(F("stopPlaybackFromFlash called"));
+	DEBUG_PRINT(F("playbackInProgress: "));DEBUG_PRINTLN(playbackInProgress);
+	DEBUG_PRINT(F("someHeavyProcessingInProgress: "));DEBUG_PRINTLN(someHeavyProcessingInProgress);
 #endif
 	if(playbackInProgress){
 		disableTimer1();
@@ -1058,13 +1065,13 @@ boolean stopPlayback(){
 		someHeavyProcessingInProgress=false;
 #ifdef DEBUG
 		delay(1000);
-		DEBUG_PRINTLN("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<");
+		DEBUG_PRINTLN(F("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"));
 		Serial.flush();
-		DEBUG_PRINTLN("stopPlaybackFromFlash done success");
+		DEBUG_PRINTLN(F("stopPlaybackFromFlash done success"));
 #endif
 		retVal=true;
 	}else{
-		DEBUG_PRINTLN("stopPlaybackFromFlash done fault, playbackInProgress is false");
+		DEBUG_PRINTLN(F("stopPlaybackFromFlash done fault, playbackInProgress is false"));
 		retVal=false;
 	}
 	return retVal;
@@ -1075,13 +1082,13 @@ boolean startRecordFromMic(const char * fileName, const char * requestSource){
 	boolean retVal=false;
 	strcpy(recordRequestSource, requestSource);
 #ifdef DEBUG
-	DEBUG_PRINT("startRecordFromMic file: ");DEBUG_PRINTLN(fileName);
-	DEBUG_PRINT("requestSource: ");DEBUG_PRINTLN(requestSource);
-	DEBUG_PRINT("recordFromMicInProgress: ");DEBUG_PRINTLN(recordFromMicInProgress);
-	DEBUG_PRINT("someHeavyProcessingInProgress: ");DEBUG_PRINTLN(someHeavyProcessingInProgress);
+	DEBUG_PRINT(F("startRecordFromMic file: "));DEBUG_PRINTLN(fileName);
+	DEBUG_PRINT(F("requestSource: "));DEBUG_PRINTLN(requestSource);
+	DEBUG_PRINT(F("recordFromMicInProgress: "));DEBUG_PRINTLN(recordFromMicInProgress);
+	DEBUG_PRINT(F("someHeavyProcessingInProgress: "));DEBUG_PRINTLN(someHeavyProcessingInProgress);
 #endif
 	if(!recordFromMicInProgress && !someHeavyProcessingInProgress){
-		DEBUG_PRINTLN("startRecordFromMic in progress: ");
+		DEBUG_PRINTLN(F("startRecordFromMic in progress: "));
 		enableTimer1();
 		notifyArduino(HIGH);
 		//recordingFile=initiateFileRecording(fileName);
@@ -1101,10 +1108,10 @@ boolean startRecordFromMic(const char * fileName, const char * requestSource){
 
 boolean stopRecordFromMic(){
 	boolean retVal=false;
-	DEBUG_PRINT("stopRecordFromMic called: ");
+	DEBUG_PRINT(F("stopRecordFromMic called: "));
 	if(recordFromMicInProgress){
-		DEBUG_PRINT("recordFromMicInProgress: ");DEBUG_PRINTLN(recordFromMicInProgress);
-		DEBUG_PRINT("someHeavyProcessingInProgress: ");DEBUG_PRINTLN(someHeavyProcessingInProgress);
+		DEBUG_PRINT(F("recordFromMicInProgress: "));DEBUG_PRINTLN(recordFromMicInProgress);
+		DEBUG_PRINT(F("someHeavyProcessingInProgress: "));DEBUG_PRINTLN(someHeavyProcessingInProgress);
 		disableTimer1();
 		notifyArduino(LOW);
 		recordingFileFromMic.close();
@@ -1209,15 +1216,15 @@ void testFileWriteSD(){
 		generateRandomFileName(fileNameBuffer, NULL);
 		recordingFileFromMic=SD.open(fileNameBuffer, FILE_WRITE_NO_APPEND);
 		if(recordingFileFromMic){
-			DEBUG_PRINT("File Open Success: ");DEBUG_PRINTLN(recordingFileFromMic.name());
+			DEBUG_PRINT(F("File Open Success: "));DEBUG_PRINTLN(recordingFileFromMic.name());
 			recordingFileFromMic.println("testing file ");
 			recordingFileFromMic.println(fileNameBuffer);
 			recordingFileFromMic.close();
 		}else{
-			DEBUG_PRINT("File open failed: ");DEBUG_PRINTLN(fileNameBuffer);
+			DEBUG_PRINT(F("File open failed: "));DEBUG_PRINTLN(fileNameBuffer);
 		}
 	}else{
-		DEBUG_PRINTLN("SD Card not found");
+		DEBUG_PRINTLN(F("SD Card not found"));
 	}
 }
 
@@ -1252,7 +1259,7 @@ void trimPath(char * sourceStr, char *retstr, bool create){
 		if(lastIndex>0){
 			char *dest=(char *)malloc(lastIndex+2);
 			substr(retstr,dest,0,lastIndex);
-			DEBUG_PRINT("dir name: "); DEBUG_PRINTLN(dest);
+			DEBUG_PRINT(F("dir name: ")); DEBUG_PRINTLN(dest);
 			if(!SD.exists(dest)){
 				SD.mkdir(dest);
 			}
@@ -1367,16 +1374,14 @@ boolean startRestoreFromFlashToSD(char *fileName){
 	if(sdCardPresent){
 		if(!restoreInProgress && !someHeavyProcessingInProgress){
 			//opening source file in flash
-			DEBUG_PRINT("Restoring file: ");DEBUG_PRINTLN(fileName);
+			DEBUG_PRINT(F("Restoring file: "));DEBUG_PRINTLN(fileName);
 			char * spiFileName=strcat("/",(char *)fileName);
 			playingFileFromFlash=SPIFFS.open(spiFileName, "r");
 			if(!playingFileFromFlash){
 				return false;
 			}
 #ifdef DEBUG
-			DEBUG_PRINT("open file from flash success: ");DEBUG_PRINT(playingFileFromFlash.name());DEBUG_PRINTLN(playingFileFromFlash.size());
-			int rb=playingFileFromFlash.read(inBuffer,2920);
-			DEBUG_PRINT("readbytes: "+rb);
+			DEBUG_PRINT(F("open file from flash success: "));DEBUG_PRINT(playingFileFromFlash.name());DEBUG_PRINTLN(playingFileFromFlash.size());
 			playingFileFromFlash.close();
 #endif
 			//opening the destination file
@@ -1389,7 +1394,7 @@ boolean startRestoreFromFlashToSD(char *fileName){
 				return false;
 			}
 			//both files opened
-			DEBUG_PRINT("open file from sd success: ");DEBUG_PRINT(playingFileFromSD.name());DEBUG_PRINTLN(playingFileFromSD.size());
+			DEBUG_PRINT(F("open file from sd success: "));DEBUG_PRINT(playingFileFromSD.name());DEBUG_PRINTLN(playingFileFromSD.size());
 			restoreInProgress=true;
 			someHeavyProcessingInProgress=true;
 			heavyProcessResponseClient=currentWSClient;
@@ -1404,11 +1409,11 @@ void bufferedRestoreFromFlashToSD(){
 		boolean dataAvailable=false;
 		dataAvailable=playingFileFromFlash.available();
 		if(!dataAvailable){
-			DEBUG_PRINTLN("playingFileFromFlash.available() is false");
+			DEBUG_PRINTLN(F("playingFileFromFlash.available() is false"));
 			strcpy(responseBuffer,commands[RESTORE]);
 			strcat(responseBuffer,":ACK:FILE_END:Restore completed");
 			clientManager.sendWSCommand(responseBuffer, heavyProcessResponseClient);
-			DEBUG_PRINT("sent message is: ");DEBUG_PRINT(responseBuffer);
+			DEBUG_PRINT(F("sent message is: "));DEBUG_PRINT(responseBuffer);
 			restoreInProgress=false;
 			someHeavyProcessingInProgress=false;
 			playingFileFromFlash.close();
@@ -1416,7 +1421,7 @@ void bufferedRestoreFromFlashToSD(){
 		}else{
 			ESP.wdtDisable();
 			size_t readBytes=playingFileFromFlash.read(rbuffer[0],INBUFSIZE);
-			DEBUG_PRINT("Bytes read: ");DEBUG_PRINTLN(readBytes);
+			DEBUG_PRINT(F("Bytes read: "));DEBUG_PRINTLN(readBytes);
 			playingFileFromSD.write(rbuffer[0],readBytes);
 			ESP.wdtEnable(0);
 		}

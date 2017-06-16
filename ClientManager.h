@@ -22,13 +22,13 @@
 #define REMOTE_AUDIO_PORT 8086
 #define REMOTE_HEARTBEAT_PORT 8087
 #define UDP_CONNECT_ATTEMPT_COUNT 10
-#define UDP_DELAY 2000
+#define UDP_DELAY 1000
 #define TCP_IP_PING_DELAY 5000 //5 secs
 
 
 #define PAIRING_CONFIG_FILE "/paired.txt"
 #define DEFAULT_DEVICE_ID "MY_DEVICE"
-#define DEBUG
+#define DEFAULT_DEVICE_KEY "123456"
 
 //class DeviceClient;
 class ClientManager {
@@ -43,25 +43,24 @@ public:
 	boolean createDevice(char * phoneId, char * phoneKey, IPAddress phoneIp);
 	void remove(DeviceClient * deviceCLient);
 	void encryptRequest();
-	char * notify(uint32_t timeout);
+	void notify(uint32_t timeout, char *_responseBuffer);
 	boolean update();
 	boolean processBroadcastData();
 	boolean startHeartbeatProcess(char* phoneId, char* phoneKey, int remoteHeartbeatPort, int remoteUdpPort);
 	boolean initializeUDPConnection();
 	void disconnectTCPIPConnection(TcpSocket &tcpSocketClient);
 	boolean establishTCPIPConnection(TcpSocket &tcpSocketClient);
-	boolean validateResponse(UDPCommand command, char * responseBuffer, char *phoneId, char *phoneKey);
-	boolean parseAndValidateRequest(char * responseBuffer, CommandData &commandData);
+	boolean isPaired(CommandData & commandData);
 	boolean openAudioChannel();
 	void closeAudioChannel();
 	void sendWSCommand(char *commandData, WSClientWrapper *client);
 	void sendWSCommand(char *commandData);
-	void setup(void (*cbFunction)(CommandData, WSClientWrapper *));
+	void setup(void (*cbFunction)(CommandData &, WSClientWrapper *));
 	void webSocketEvent(WSClientWrapper *const client, WStype_t type, uint8_t * payload, size_t length);
 	DeviceClient *getDeviceClient(char *phoneId, char *phoneKey);
 	DeviceClient *getDeviceClient(IPAddress remoteIP);
 	WiFiClient &audioSocket=_audioClient.client;
-	void setCommandReceiveCallback(void (*cbFunction)(CommandData, WSClientWrapper *)){
+	void setCommandReceiveCallback(void (*cbFunction)(CommandData &, WSClientWrapper *)){
 		_commandCallback=cbFunction;
 	}
 
@@ -99,18 +98,17 @@ private:
 	uint8_t _nextSocketToPoll=0;
 
 	char _deviceId[16];
-	char _requestBuffer[256];		// a string with command
-	char _responseBuffer[256];       // a string to send back
-	char _tempBuffer[256];		// should be used locally
+	char _deviceKey[8];
 	const char *delim=".:";
 
-	void (*_commandCallback)(CommandData, WSClientWrapper *)=0;
+	void (*_commandCallback)(CommandData &, WSClientWrapper *)=0;
 	int sendUDPCommand(const char* command, WiFiUDP &client, IPAddress ip, uint16_t port);
 	int sendUDPCommand(const char* command, UdpSocket &socket);
 	int receiveUDPCommand(UdpSocket &socket, char *resBuf, int bufferSize);
-	SocketData parseTCPIPHostInfo(char * infoStr);
 	char * parseCommandData(char * infoStr);
-	boolean udpTranscieve(UDPCommand commandId, UdpSocket &socketData, char * requestBuffer, char *responseBuffer, uint16_t timeout, boolean validateResponse);
+	boolean udpTranscieve(UdpSocket &socketData, CommandData &sendCommandData, CommandData &receiveCommandData,
+			boolean broadcast=true,
+			uint16_t timeout=30000, uint16_t repeatCount=5);
 	boolean _deviceToRemove=false;
 	IPAddress _removeIP;
 

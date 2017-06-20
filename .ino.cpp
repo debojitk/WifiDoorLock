@@ -2,7 +2,7 @@
 //This is a automatic generated file
 //Please do not modify this file
 //If you touch this file your change will be overwritten during the next build
-//This file has been generated on 2017-06-16 01:29:25
+//This file has been generated on 2017-06-20 00:39:26
 
 #include "Arduino.h"
 #include "debugmacros.h"
@@ -34,7 +34,8 @@ void setupNotifyGPIO();
 void setupPairingGPIO();
 void setupNotifyArduino();
 void notifyArduino(int state);
-void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsClient);
+void makeCommand(UDPCommand command, char * buffer);
+void processIncomingWSCommands(CommandData &commandData, WSClientWrapper *wsClient);
 void getFreeHeap();
 void setupTimer1();
 void enableTimer1();

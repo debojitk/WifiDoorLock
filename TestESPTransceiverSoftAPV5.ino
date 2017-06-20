@@ -47,7 +47,6 @@
 //const char* password = "India@123";
 
 char responseBuffer[256];       // a string to send back
-char *longResponseBuffer=NULL;       // a string to send back
 
 const char* host="192.168.0.104";
 const char * delim=".:";
@@ -115,37 +114,7 @@ uint8_t sample=0, prevSample=0;
 
 
 
-char commands[][30]={
-		"UDP_PAIR_BROADCAST",
-		"UDP_PAIR_BROADCAST_ACCEPT",
-		"UDP_PAIR_BROADCAST_REJECT",
-		"UDP_CONNECT_BC_REQUEST",
-		"UDP_CONNECT_BC_RESPONSE",
-		"UDP_CONNECT_BC_RETRY",
-		"UDP_CONNECT_BC_STARTHB",
-		"START_COMM",
-		"STOP_COMM",
-		"START_RECORD",
-		"STOP_RECORD",
-		"MIC_RECORD_START",
-		"MIC_RECORD_STOP",
-		"START_PLAY",
-		"STOP_PLAY",
-		"RESET",
-		"NOTIFY",
-		"HELLO",
-		"OPEN_DOOR",
-		"CLOSE_DOOR",
-		"SAVE_CONFIG",
-		"LOAD_CONFIG",
-		"DELETE_FILE",
-		"GET_MESSAGES",
-		"FORMAT",
-		"FREE_SPACE",
-		"SD_WRITE_TEST",
-		"TEST_NOTIFY",
-		"RESTORE"
-};
+
 
 
 void setup(){
@@ -161,7 +130,7 @@ void setup(){
 	setupSDCard();
 	readConfigFileAndConfigureWifi();
 	//starting up clientManager
-	clientManager.setup(processIncomingUDPCommands);
+	clientManager.setup(processIncomingWSCommands);
 	//setupNotifyGPIO();
 	setupPairingGPIO();
 	setupDoorControl();
@@ -169,8 +138,6 @@ void setup(){
 	setupTimer1();
 	currentTimeStamp=previousTimeStamp=millis();
 }
-
-
 
 void setupSDCard(){
 	DEBUG_PRINTLN(F("Initializing SD card..."));
@@ -321,36 +288,18 @@ void processNotify(){
 			notifyFlowInProgress=false;
 		}else{
 			//startPlayback(PLEASE_WAIT,REQUEST_SOURCE_NOTIFY);
-			char notifyResponse[256];
-			clientManager.notify(20000, notifyResponse);
-			if(strlen(notifyResponse)>0){
-				//server notified, await tcp/ip communication
-				DEBUG_PRINTLN(F("server notified, await tcp/ip communication"));
-				if(strstr(notifyResponse, "NOTIFY:ACK")!=NULL){
-					//notify accepted, do nothing
-					notifyFlowInProgress=false;
-					DEBUG_PRINTLN(F("notify accepted, await tcp/ip communication"));
-					//reenable notification
-					setupNotifyGPIO();
-				}else if(strstr(notifyResponse, "NOTIFY:NACK")!=NULL){
-					//notification not accepted
-					DEBUG_PRINTLN(F("notify not accepted, play NOBODY_RESPONDING"));
-					startPlayback(NOBODY_RESPONDING,REQUEST_SOURCE_NOTIFY);
-				}
-			}else{
-				//recipient device is not found so start fallback plan
-				//plan to provide a message and recording options on device.
-				//1. startPlayback(NOBODY_RESPONDING)
-				//2. bufferedPlaybackToSpeaker(), on completion of file read do next
-				//3. startRecordFromMic(messageFileName),
-				//4. bufferedRecordFromMic() does the recording, on MAX_RECORD_LEN condition do next
-				//5. startPlayback(THANK_YOU,REQUEST_SOURCE_NOTIFY);
-				DEBUG_PRINTLN(F("notification response not received, playing NOBODY_RESPONDING"));
-				startPlayback(NOBODY_RESPONDING,REQUEST_SOURCE_NOTIFY);
-			}
+			clientManager.notify();
+			//recipient device is not found so start fallback plan
+			//plan to provide a message and recording options on device.
+			//1. startPlayback(NOBODY_RESPONDING)
+			//2. bufferedPlaybackToSpeaker(), on completion of file read do next
+			//3. startRecordFromMic(messageFileName),
+			//4. bufferedRecordFromMic() does the recording, on MAX_RECORD_LEN condition do next
+			//5. startPlayback(THANK_YOU,REQUEST_SOURCE_NOTIFY);
+			DEBUG_PRINTLN(F("notification response not received, playing NOBODY_RESPONDING"));
+			startPlayback(NOBODY_RESPONDING,REQUEST_SOURCE_NOTIFY);
 		}
 	}
-
 }
 
 
@@ -428,8 +377,15 @@ void notifyArduino(int state){
 	digitalWrite(BUILTIN_LED, state);
 }
 
+void makeCommand(UDPCommand command, char * buffer){
+	strcpy(buffer,commands[command]);
+	strcat(buffer, ":");
+	strcat(buffer, ClientManager::getDeviceId());
+	strcat(buffer, ":");
+	strcat(buffer, ClientManager::getDeviceKey());
+}
 
-void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsClient){
+void processIncomingWSCommands(CommandData &commandData, WSClientWrapper *wsClient){
 	currentWSClient=wsClient;
 #ifdef DEBUG
 	getFreeHeap();
@@ -437,7 +393,7 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 	if(strcmp(commands[START_COMM], commandData.getCommand())==0){
 		if(!tcpIpCommStarted){
 			//preparing response
-			strcpy(responseBuffer,commands[START_COMM]);
+			makeCommand(START_COMM, responseBuffer);
 			if(openAudioChannel()){
 				tcpIpCommStarted=true;
 				enableTimer1();
@@ -455,7 +411,7 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commands[STOP_COMM], commandData.getCommand())==0){
-		strcpy(responseBuffer,commands[STOP_COMM]);
+		makeCommand(STOP_COMM, responseBuffer);
 		if(tcpIpCommStarted){
 			tcpIpCommStarted=false;
 			closeAudioChannel();
@@ -470,12 +426,12 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 	}
 	if(strcmp(commands[HELLO], commandData.getCommand())==0){
 		testFileWriteSD();
-		strcpy(responseBuffer,commands[HELLO]);
+		makeCommand(HELLO, responseBuffer);
 		strcat(responseBuffer,":ACK:TestESPTransceiverSoftAPV5");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commands[RESET], commandData.getCommand())==0){
-		strcpy(responseBuffer,commands[RESET]);
+		makeCommand(RESET, responseBuffer);
 		strcat(responseBuffer,":ACK");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 		delay(1000);
@@ -483,7 +439,7 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 	}
 	if(strcmp(commands[OPEN_DOOR], commandData.getCommand())==0){
 		digitalWrite(OPEN_DOOR_PIN, HIGH);
-		strcpy(responseBuffer,commands[OPEN_DOOR]);
+		makeCommand(OPEN_DOOR, responseBuffer);
 		strcat(responseBuffer,":ACK");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 		delay(500);
@@ -491,15 +447,15 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 	}
 	if(strcmp(commands[CLOSE_DOOR], commandData.getCommand())==0){
 		digitalWrite(CLOSE_DOOR_PIN, HIGH);
-		strcpy(responseBuffer,commands[CLOSE_DOOR]);
+		makeCommand(CLOSE_DOOR, responseBuffer);
 		strcat(responseBuffer,":ACK");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 		delay(500);
 		digitalWrite(CLOSE_DOOR_PIN, LOW);
 	}
 	if(strcmp(commandData.getCommand(),commands[START_RECORD])==0){
-		char * fileName=commandData.data;
-		strcpy(responseBuffer,commands[START_RECORD]);
+		char * fileName=commandData.getData();
+		makeCommand(START_RECORD, responseBuffer);
 		if(sdCardPresent){
 			if(!recordInProgress &&!someHeavyProcessingInProgress){
 				if(openAudioChannel()){
@@ -531,7 +487,7 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[STOP_RECORD])==0){
-		strcpy(responseBuffer,commands[STOP_RECORD]);
+		makeCommand(STOP_RECORD, responseBuffer);
 		if(sdCardPresent){
 			if(recordInProgress){
 				recordInProgress=false;
@@ -550,8 +506,8 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[START_PLAY])==0){
-		const char * fileName=commandData.data;
-		strcpy(responseBuffer,commands[START_PLAY]);
+		const char * fileName=commandData.getData();
+		makeCommand(START_PLAY, responseBuffer);
 		if(startPlayback(fileName, REQUEST_SOURCE_PHONE)){
 			strcat(responseBuffer,":ACK");
 		}else{
@@ -560,7 +516,7 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[STOP_PLAY])==0){
-		strcpy(responseBuffer,commands[STOP_PLAY]);
+		makeCommand(STOP_PLAY, responseBuffer);
 		if(stopPlayback()){
 			strcat(responseBuffer,":ACK");
 		}else{
@@ -569,8 +525,8 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[MIC_RECORD_START])==0){
-		const char * fileName=commandData.data;
-		strcpy(responseBuffer,commands[MIC_RECORD_START]);
+		const char * fileName=commandData.getData();
+		makeCommand(MIC_RECORD_START, responseBuffer);
 		if(sdCardPresent){
 			if(startRecordFromMic(fileName, REQUEST_SOURCE_PHONE)){
 				strcat(responseBuffer,":ACK");
@@ -584,7 +540,7 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[MIC_RECORD_STOP])==0){
-		strcpy(responseBuffer,commands[MIC_RECORD_STOP]);
+		makeCommand(MIC_RECORD_STOP, responseBuffer);
 		if(sdCardPresent){
 			if(stopRecordFromMic()){
 				strcat(responseBuffer,":ACK");
@@ -598,26 +554,26 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[SAVE_CONFIG])==0){
-		const char * config=commandData.data;
+		const char * config=commandData.getData();
 		String str(config);
 		properties.parsePropertiesAndPut(str);
 		properties.print();
 		properties.store(CONFIG_FILE);
-		strcpy(responseBuffer,commands[SAVE_CONFIG]);
+		makeCommand(SAVE_CONFIG, responseBuffer);
 		strcat(responseBuffer,":ACK");
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[LOAD_CONFIG])==0){
 		properties.print();
 		properties.load(CONFIG_FILE);
-		strcpy(responseBuffer,commands[LOAD_CONFIG]);
+		makeCommand(LOAD_CONFIG, responseBuffer);
 		strcat(responseBuffer,":ACK:");
 		strcat(responseBuffer,properties.serialize().c_str());
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[DELETE_FILE])==0){
-		char * fileName=commandData.data;
-		strcpy(responseBuffer,commands[DELETE_FILE]);
+		char * fileName=commandData.getData();
+		makeCommand(DELETE_FILE, responseBuffer);
 		trimPath(fileName, fileNameBuffer, false);
 		if(SD.remove(fileNameBuffer)){
 			strcat(responseBuffer,":ACK");
@@ -627,7 +583,7 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[FORMAT])==0){
-		strcpy(responseBuffer,commands[FORMAT]);
+		makeCommand(FORMAT, responseBuffer);
 
 		if(SPIFFS.format()){
 			strcat(responseBuffer,":ACK");
@@ -640,7 +596,7 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[FREE_SPACE])==0){
-		strcpy(responseBuffer,commands[FREE_SPACE]);
+		makeCommand(FREE_SPACE, responseBuffer);
 #ifdef DEBUG
 		FSInfo fs_info;
 		SPIFFS.info(fs_info);
@@ -656,20 +612,19 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 	}
 
 	if(strcmp(commandData.getCommand(),commands[GET_MESSAGES])==0){
-		longResponseBuffer=new char[1024];
-		strcpy(longResponseBuffer,commands[GET_MESSAGES]);
-		strcat(longResponseBuffer,":ACK:");
+		char longResponseBuffer[1024];
+		makeCommand(GET_MESSAGES, longResponseBuffer);
 		msgsDir=SD.open("messages");
 		if(msgsDir){
+			strcat(longResponseBuffer,":ACK:");
 			getMessagesList(msgsDir,longResponseBuffer);
 		}else{
-			strcat(longResponseBuffer, "messages folder not found");
+			strcat(longResponseBuffer, "NACK:messages folder not found");
 		}
 		clientManager.sendWSCommand(longResponseBuffer, wsClient);
-		delete []longResponseBuffer;
 	}
 	if(strcmp(commandData.getCommand(),commands[SD_WRITE_TEST])==0){
-		strcpy(responseBuffer,commands[SD_WRITE_TEST]);
+		makeCommand(SD_WRITE_TEST, responseBuffer);
 		generateRandomFileName(fileNameBuffer, NULL);
 		//trimFileName(fileNameBuffer, fileNameBuffer);
 		recordingFileFromMic=SD.open(fileNameBuffer, FILE_WRITE_NO_APPEND);
@@ -685,15 +640,28 @@ void processIncomingUDPCommands(CommandData &commandData, WSClientWrapper *wsCli
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
-	if(strcmp(commandData.getCommand(),commands[TEST_NOTIFY])==0){
-		strcpy(responseBuffer,commands[TEST_NOTIFY]);
+	if(strcmp(commandData.getCommand(),commands[NOTIFY])==0){
+		if(commandData.getResponse()){
+			notifyFlowInProgress=false;
+			if(commandData.getError()){
+				//rejected
+				DEBUG_PRINTLN(F("notify not accepted, play NOBODY_RESPONDING"));
+				startPlayback(NOBODY_RESPONDING,REQUEST_SOURCE_NOTIFY);
+			}else{
+				//accepted
+				DEBUG_PRINTLN(F("notify accepted, await tcp/ip communication"));
+				//reenable notification
+				setupNotifyGPIO();
+			}
+		}
+		makeCommand(NOTIFY, responseBuffer);
 		strcat(responseBuffer,":ACK:");
 		notifyRequested=true;
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}
 	if(strcmp(commandData.getCommand(),commands[RESTORE])==0){
-		char * fileName=commandData.data;
-		strcpy(responseBuffer,commands[RESTORE]);
+		char * fileName=commandData.getData();
+		makeCommand(RESTORE, responseBuffer);
 		if(sdCardPresent){
 			if(!someHeavyProcessingInProgress){
 				if(startRestoreFromFlashToSD(fileName)){
@@ -885,8 +853,8 @@ void recordMessageFromPhone(){
 				someHeavyProcessingInProgress=false;
 				recordingFile.close();
 				//stopFileProcessing(recordingFile);
-				strcpy(responseBuffer,commands[STOP_RECORD]);
-				strcat(responseBuffer,":ACK:MAX_REC_LENGTH:max file size reached");
+				makeCommand(STOP_RECORD, responseBuffer);
+				strcat(responseBuffer,":ACK:MAX_REC_LENGTH-max file size reached");
 				clientManager.sendWSCommand(responseBuffer, heavyProcessResponseClient);
 				DEBUG_PRINT(F("recordMessageFromPhone stopped, max size reached, bytes: "));DEBUG_PRINTLN(recordLength);
 				return;
@@ -912,11 +880,11 @@ void bufferedPlaybackToSpeaker(){
 			DEBUG_PRINTLN(F("playingFile.available() is false"));
 			if(strcmp(playRequestSource,REQUEST_SOURCE_PHONE)==0){
 				DEBUG_PRINTLN(F("request source is phone"));
-				strcpy(responseBuffer,commands[STOP_PLAY]);
+				makeCommand(STOP_PLAY, responseBuffer);
 				if(stopPlayback()){
-					strcat(responseBuffer,":ACK:FILE_END:Playback completed");
+					strcat(responseBuffer,":ACK:FILE_END-Playback completed");
 				}else{
-					strcat(responseBuffer,":ACK:FILE_END:File end reached and playback stopped");
+					strcat(responseBuffer,":ACK:FILE_END-File end reached and playback stopped");
 				}
 				clientManager.sendWSCommand(responseBuffer, heavyProcessResponseClient);
 				DEBUG_PRINT(F("sent message is: "));DEBUG_PRINT(responseBuffer);
@@ -1012,7 +980,9 @@ boolean startPlayback(const char * fileName, const char * requestSource){
 				playingFromSD=true;
 			}
 		}else{
-			char * spiFileName=strcat("/",fileName);
+			char spiFileName[30];
+			strcpy(spiFileName, "/");
+			strcat(spiFileName, fileName);
 			playingFileFromFlash=SPIFFS.open(spiFileName, "r");
 			if(playingFileFromFlash){
 				filePresent=true;
@@ -1410,8 +1380,8 @@ void bufferedRestoreFromFlashToSD(){
 		dataAvailable=playingFileFromFlash.available();
 		if(!dataAvailable){
 			DEBUG_PRINTLN(F("playingFileFromFlash.available() is false"));
-			strcpy(responseBuffer,commands[RESTORE]);
-			strcat(responseBuffer,":ACK:FILE_END:Restore completed");
+			makeCommand(RESTORE, responseBuffer);
+			strcat(responseBuffer,":ACK:FILE_END-Restore completed");
 			clientManager.sendWSCommand(responseBuffer, heavyProcessResponseClient);
 			DEBUG_PRINT(F("sent message is: "));DEBUG_PRINT(responseBuffer);
 			restoreInProgress=false;

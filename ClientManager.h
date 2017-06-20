@@ -17,6 +17,7 @@
 #include "Properties.h"
 #include <WebSocketsClient.h>
 #include "DeviceClient.h"
+#include "CommandData.h"
 #define LOCAL_UDP_PORT 6666
 #define REMOTE_UDP_PORT 8888
 #define REMOTE_AUDIO_PORT 8086
@@ -43,7 +44,7 @@ public:
 	boolean createDevice(char * phoneId, char * phoneKey, IPAddress phoneIp);
 	void remove(DeviceClient * deviceCLient);
 	void encryptRequest();
-	void notify(uint32_t timeout, char *_responseBuffer);
+	void notify();
 	boolean update();
 	boolean processBroadcastData();
 	boolean startHeartbeatProcess(char* phoneId, char* phoneKey, int remoteHeartbeatPort, int remoteUdpPort);
@@ -83,9 +84,14 @@ public:
 	void setDeviceId(char *deviceId){
 		strcpy(this->_deviceId, deviceId);
 	}
-	char *getDeviceId(){
+
+	static char *getDeviceId(){
 		return _deviceId;
 	}
+	static char *getDeviceKey(){
+		return _deviceKey;
+	}
+
 private:
 	LinkedList<DeviceClient *>_clientList=LinkedList<DeviceClient *>();
 	Properties _clientStore=Properties(10);//to store paired devices
@@ -97,20 +103,21 @@ private:
 	uint32_t _previousTimeStamp;
 	uint8_t _nextSocketToPoll=0;
 
-	char _deviceId[16];
-	char _deviceKey[8];
-	const char *delim=".:";
+	static char _deviceId[16];
+	static char _deviceKey[8];
 
 	void (*_commandCallback)(CommandData &, WSClientWrapper *)=0;
 	int sendUDPCommand(const char* command, WiFiUDP &client, IPAddress ip, uint16_t port);
 	int sendUDPCommand(const char* command, UdpSocket &socket);
 	int receiveUDPCommand(UdpSocket &socket, char *resBuf, int bufferSize);
 	char * parseCommandData(char * infoStr);
-	boolean udpTranscieve(UdpSocket &socketData, CommandData &sendCommandData, CommandData &receiveCommandData,
-			boolean broadcast=true,
-			uint16_t timeout=30000, uint16_t repeatCount=5);
 	boolean _deviceToRemove=false;
 	IPAddress _removeIP;
 
+	boolean udpTranscieve(UdpSocket &socketData,
+			CommandData &sendCommandData,
+			CommandData &receiveCommandData,
+			boolean broadcast=true,
+			uint16_t timeout=30000, uint16_t repeatCount=5);
 };
 #endif /* CLIENTMANAGER_H_ */

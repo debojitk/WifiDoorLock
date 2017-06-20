@@ -38,40 +38,7 @@ struct TcpSocket{
 	boolean response;//if the response is ACK/NACK, then response is true
 	boolean error;//if NACK the error is true, and data contains error message
 };*/
-extern char commands[][30];
 
-enum UDPCommand:uint8_t{
-	UDP_PAIR_BROADCAST,
-	UDP_PAIR_BROADCAST_ACCEPT,
-	UDP_PAIR_BROADCAST_REJECT,
-	UDP_CONNECT_BC_REQUEST,
-	UDP_CONNECT_BC_RESPONSE,
-	UDP_CONNECT_BC_RETRY,
-	UDP_CONNECT_BC_STARTHB,
-	START_COMM,
-	STOP_COMM,
-	START_RECORD,
-	STOP_RECORD,
-	MIC_RECORD_START,
-	MIC_RECORD_STOP,
-	START_PLAY,
-	STOP_PLAY,
-	RESET,
-	NOTIFY,
-	HELLO,
-	OPEN_DOOR,
-	CLOSE_DOOR,
-	SAVE_CONFIG,
-	LOAD_CONFIG,
-	DELETE_FILE,
-	GET_MESSAGES,
-	FORMAT,
-	FREE_SPACE,
-	SD_WRITE_TEST,
-	TEST_NOTIFY,
-	RESTORE
-
-};
 void trimPath(char * sourceStr, char *retstr, bool create=false);
 
 #endif /* SOCKETDATA_H_ */

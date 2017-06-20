@@ -11,6 +11,12 @@
 #include "WebSocketsClient.h"
 #include "WSClientWrapper.h"
 
+
+char ClientManager::_deviceId[16];
+char ClientManager::_deviceKey[8];
+
+
+
 ClientManager::ClientManager() {
 	// TODO Auto-generated constructor stub
 	strcpy(_deviceId,DEFAULT_DEVICE_ID);
@@ -33,7 +39,7 @@ void ClientManager::setup(void (*cbFunction)(CommandData &, WSClientWrapper *)) 
 		}
 		String strKey=_clientStore.get("device_key");
 		if(!strKey.equals("")){
-			strcpy(_deviceId,(char *)strKey.c_str());
+			strcpy(_deviceKey,(char *)strKey.c_str());
 		}else{
 			unsigned short key=(unsigned short)millis();//pairing id, should be returned in response
 			String str(key,10);
@@ -44,13 +50,14 @@ void ClientManager::setup(void (*cbFunction)(CommandData &, WSClientWrapper *)) 
 
 	}else{
 		_clientStore.put("device_id", DEFAULT_DEVICE_ID);
+		strcpy(_deviceId,DEFAULT_DEVICE_ID);
 		unsigned short key=(unsigned short)millis();//pairing id, should be returned in response
 		String str(key,10);
 		_clientStore.put("device_key", str);
 		_clientStore.store(PAIRING_CONFIG_FILE);
 		strcpy(_deviceKey, str.c_str());
 	}
-	DEBUG_PRINTF_P("Default Deviceid is: %s\n", _deviceId);
+	DEBUG_PRINTF_P("Default Deviceid is: %s, deviceKey is: %s\n", _deviceId, _deviceKey);
 	//setting up udp broadcast socket
 	_udpBroadcastClient.client.begin(LOCAL_UDP_PORT);
 	_udpBroadcastClient.socket.ip=~WiFi.subnetMask() | WiFi.gatewayIP();
@@ -62,10 +69,10 @@ void ClientManager::setup(void (*cbFunction)(CommandData &, WSClientWrapper *)) 
 ClientManager::~ClientManager() {
 }
 
+
+//TODO: to use MAC address as key
 boolean ClientManager::pair() {
 	char randBuf[8];
-	char _responseBuffer[256];
-	char _requestBuffer[256];
 	DEBUG_PRINTLN(F("Enter pairing mode"));
 	boolean retVal=false;
 	//1. Request from device: UDP_PAIR_BROADCAST:deviceId:deviceKeyChallenge
@@ -90,8 +97,8 @@ boolean ClientManager::pair() {
 			sendCommand.setPhoneKey(_deviceKey);
 			udpSendResp=udpTranscieve(_udpBroadcastClient, sendCommand, receiveCommand, false);
 			if(udpSendResp){
-				if(receiveCommand.response==true &&
-						receiveCommand.error==false &&
+				if(receiveCommand.getResponse()==true &&
+						receiveCommand.getError()==false &&
 						strcmp(_deviceKey, receiveCommand.getData())==0){
 					if(strlen(receiveCommand.getPhoneId())>0 && strlen(receiveCommand.getPhoneKey())>0){
 						DEBUG_PRINTF_P("Pairing: PhoneId: %s, PhoneKey: %s\n", receiveCommand.getPhoneId(), receiveCommand.getPhoneKey());
@@ -145,7 +152,11 @@ boolean ClientManager::createDevice(char * phoneId, char * phoneKey, IPAddress p
 	deviceClient->setRemoteIp(phoneIp);
 	deviceClient->getWsClient().setClientManager(this);
 	//deviceClient->getWsClient().beginSSL(phoneIp.toString(), REMOTE_HEARTBEAT_PORT, "/", "0a e7 9b bf cb 8a 5a 74 2d 43 e7 bc b7 02 cf 95 a1 19 77 c8");
-	deviceClient->getWsClient().begin(phoneIp.toString(), REMOTE_HEARTBEAT_PORT, _deviceId);
+	char deviceInfo[30];
+	strcpy(deviceInfo, _deviceId);
+	strcat(deviceInfo,":");
+	strcat(deviceInfo,_deviceKey);
+	deviceClient->getWsClient().begin(phoneIp.toString(), REMOTE_HEARTBEAT_PORT, deviceInfo);
 	_clientList.add(deviceClient);
 	_connectedDeviceCount++;
 	DEBUG_PRINTLN(F("Device successfully created"));
@@ -182,7 +193,7 @@ boolean ClientManager::isPaired(CommandData &commandData){
 			retVal=true;
 		}
 	}
-
+	DEBUG_PRINT(F("isPaired="));DEBUG_PRINTLN(retVal);
 	return retVal;
 }
 
@@ -192,7 +203,23 @@ void ClientManager::encryptRequest() {
 /**
  * notify is handled via broadcast socket
  */
-void ClientManager::notify(uint32_t timeout, char *_responseBuffer) {
+void ClientManager::notify() {
+
+	char notifyCommand[64];
+	strcpy(notifyCommand, commands[NOTIFY]);
+	strcat(notifyCommand, ":");
+	strcat(notifyCommand, _deviceId);
+	strcat(notifyCommand, ":");
+	strcat(notifyCommand, _deviceKey);
+	int size=_clientList.size();
+	for(int i=0;i<size;i++){
+		DeviceClient *device=_clientList.get(i);
+		if(device!=NULL){
+			device->getWsClient().sendTXT(notifyCommand);
+		}
+	}
+
+
 }
 
 /**
@@ -207,15 +234,46 @@ boolean ClientManager::processBroadcastData() {
 		CommandData commandData;
 		boolean parsed=commandData.parseCommandString(responseBuffer);
 		if(parsed && isPaired(commandData)){
+            /**
+             * Connection handling
+             * 1. If device sends UDP_CONN_BC_REQUEST
+             *      then its a device initiated request, and connection established in two step handshaking
+             *      phone sends UDP_CONN_BC_RESPONSE
+             *      device starts web socket connection
+             *      phone receives new web socket connection request
+             *      Connection gets established.
+             * 2. If phone sends UDP_CONN_BC_REQUEST
+             *      then its a phone initiated request, and connection established in three step handshaking
+             *      device sends UDP_CONN_BC_RESPONSE
+             *      phone responds back with UDP_CONN_BC_RESPONSE:ACK
+             *      device starts web socket connection
+             *      phone receives new web socket connection request
+             *      Connection gets established.
+             */
 			if(strcmp(commands[UDP_CONNECT_BC_REQUEST],commandData.getCommand())==0){
 				//p.i.c
 				//create device partially
+				CommandData response;
+				response.setCommand(commands[UDP_CONNECT_BC_RESPONSE]);
+				char responseArr[64];
+				response.buildCommandString(responseArr);
+				sendUDPCommand(responseArr,_udpBroadcastClient.client, _udpBroadcastClient.client.remoteIP(), REMOTE_UDP_PORT);
 				createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), _udpBroadcastClient.client.remoteIP());
-				sendUDPCommand(commands[UDP_CONNECT_BC_RESPONSE],_udpBroadcastClient.client, _udpBroadcastClient.client.remoteIP(), REMOTE_UDP_PORT);
 			}else if(strcmp(commands[UDP_CONNECT_BC_RESPONSE],commandData.getCommand())==0){
 				//d.i.c
 				//UDP_CONNECT_BC_RESPONSE:phoneId:phoneKey
-				createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), _udpBroadcastClient.client.remoteIP());
+				if(!commandData.getResponse()){
+					createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), _udpBroadcastClient.client.remoteIP());
+				}else{
+					//in case of pic this should be the last part of handshaking, i.e., UDP_CONNECT_BC_RESPONSE:ACK
+					//if its ACK the create the websocket connection
+					//else do nothing.
+					if(commandData.getError()){
+						DEBUG_PRINT(F("An error occurred->"));DEBUG_PRINTLN(commandData.getData());
+					}else{
+						createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), _udpBroadcastClient.client.remoteIP());
+					}
+				}
 			}
 		}else{
 			//dont send any response
@@ -270,6 +328,7 @@ boolean ClientManager::initializeUDPConnection() {
 			DEBUG_PRINT(F("udp broadcast search message sent, IP: "));DEBUG_PRINT(_udpBroadcastClient.socket.ip);DEBUG_PRINT(F(":"));DEBUG_PRINTLN(_udpBroadcastClient.socket.port);
 #endif
 			CommandData commandData;
+			//DEBUG_PRINTF_P("Input Command String is: %s\n", commands[UDP_CONNECT_BC_REQUEST]);
 			commandData.setCommand(commands[UDP_CONNECT_BC_REQUEST]);
 			commandData.setPhoneId(_deviceId);
 			commandData.setPhoneKey(_deviceKey);
@@ -376,17 +435,16 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 	int readBytes=0;
 	boolean matchFound=false;
 	unsigned long endMs=millis()+timeout;
-	while(endMs-millis()>0){
+	while(endMs>millis()){
 		//if extra data is there append with command separated by colon
-		char *tempBuffer=new char[256];
+		char tempBuffer[256];
 		sendCommandData.buildCommandString(tempBuffer);
 		int udpSendResp=broadcast?sendUDPCommand(tempBuffer, socketData)://broadcasting
 				sendUDPCommand(tempBuffer,socketData.client, socketData.client.remoteIP(), REMOTE_UDP_PORT);//unicasting
-		delete [] tempBuffer;
 		int udpAttemptCount=0;
 		if(udpSendResp){
-			while(endMs-millis()>0){
-				char *responseBuffer=new char[256];
+			while(endMs>millis()){
+				char responseBuffer[256];
 				if((readBytes=receiveUDPCommand(socketData,responseBuffer,255))>0){
 					receiveCommandData.parseCommandString(responseBuffer);
 					if(strcmp(sendCommandData.getCommand(), receiveCommandData.getCommand())==0){
@@ -403,7 +461,6 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 					}
 					delay(UDP_DELAY);
 				}
-				delete [] responseBuffer;
 			}
 			if(matchFound){
 				DEBUG_PRINTLN(F("match found check"));

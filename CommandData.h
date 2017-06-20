@@ -7,10 +7,47 @@
 
 #ifndef COMMANDDATA_H_
 #define COMMANDDATA_H_
+#include <Arduino.h>
+
+extern char commands[][30];
+
+enum UDPCommand:uint8_t{
+	UDP_PAIR_BROADCAST,
+	UDP_PAIR_BROADCAST_ACCEPT,
+	UDP_PAIR_BROADCAST_REJECT,
+	UDP_CONNECT_BC_REQUEST,
+	UDP_CONNECT_BC_RESPONSE,
+	UDP_CONNECT_BC_RETRY,
+	UDP_CONNECT_BC_STARTHB,
+	START_COMM,
+	STOP_COMM,
+	START_RECORD,
+	STOP_RECORD,
+	MIC_RECORD_START,
+	MIC_RECORD_STOP,
+	START_PLAY,
+	STOP_PLAY,
+	RESET,
+	NOTIFY,
+	NOTIFY_ACCPET,
+	NOTIFY_REJECT,
+	HELLO,
+	OPEN_DOOR,
+	CLOSE_DOOR,
+	SAVE_CONFIG,
+	LOAD_CONFIG,
+	DELETE_FILE,
+	GET_MESSAGES,
+	FORMAT,
+	FREE_SPACE,
+	SD_WRITE_TEST,
+	TEST_NOTIFY,
+	RESTORE
+
+};
 
 class CommandData {
 public:
-	CommandData(char *commandStr);
 	CommandData();
 	virtual ~CommandData();
 
@@ -71,7 +108,6 @@ private:
 	char data[256];
 	boolean response=false;//if the response is ACK/NACK, then response is true
 	boolean error=false;//if NACK the error is true, and data contains error message
-
 };
 
 #endif /* COMMANDDATA_H_ */

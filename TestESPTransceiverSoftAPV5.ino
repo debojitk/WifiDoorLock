@@ -19,8 +19,8 @@
 #define ICACHE_RAM_ATTR     __attribute__((section(".iram.text")))//required for timer
 #define TIMER_DELAY 45  //19.25khz //46 for 22050 (1,000,000/22050)
 //#define TIMER_DELAY 500000// 1 sec
-#define INBUFSIZE 2920/2
-#define OUTBUFSIZE 2920/2
+#define INBUFSIZE 2920
+#define OUTBUFSIZE 2920
 #define DEFAULT_SOFT_AP_SSID "ESPAP"
 //#define MAX_REC_LENGTH 500000
 #define CONFIG_FILE "/config.txt"
@@ -307,7 +307,7 @@ void processPairing(){
 	if(hasIncomingPairingRequest()){
 		clientManager.pair();
 		pairingFlowInProgress=false;
-		DEBUG_PRINTLN(F("Reenabling pairing gpio"));
+		DEBUG_PRINTLN(F("Re-enabling pairing gpio"));
 		setupPairingGPIO();
 	}
 }
@@ -397,9 +397,14 @@ void processIncomingWSCommands(CommandData &commandData, WSClientWrapper *wsClie
 			if(openAudioChannel()){
 				tcpIpCommStarted=true;
 				enableTimer1();
-				notifyArduino(HIGH);
+				//notifyArduino(HIGH);
 				someHeavyProcessingInProgress=true;
 				heavyProcessResponseClient=currentWSClient;
+#ifdef DEBUG
+				DEBUG_PRINTLN(F("****************************************************************"));
+				Serial.flush();
+				delay(1000);
+#endif
 				strcat(responseBuffer,":ACK");
 			}else{
 				strcat(responseBuffer,":NACK:TCP/IP connection failed");
@@ -423,6 +428,10 @@ void processIncomingWSCommands(CommandData &commandData, WSClientWrapper *wsClie
 			strcat(responseBuffer,"NACK:TCP/IP communication already stopped");
 		}
 		clientManager.sendWSCommand(responseBuffer, wsClient);
+#ifdef DEBUG
+		delay(1000);
+		DEBUG_PRINTLN(F("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"));
+#endif
 	}
 	if(strcmp(commands[HELLO], commandData.getCommand())==0){
 		testFileWriteSD();
@@ -725,9 +734,9 @@ void disableTimer1(){
 //handles tcp/ip communication
 boolean openAudioChannel(){
 	if(clientManager.openAudioChannel()){
-		tcpIpSocketConnected=false;
-	}else{
 		tcpIpSocketConnected=true;
+	}else{
+		tcpIpSocketConnected=false;
 	}
 	return tcpIpSocketConnected;
 }
@@ -964,7 +973,6 @@ boolean startPlayback(const char * fileName, const char * requestSource){
 	DEBUG_PRINTLN(F("****************************************************************"));
 	Serial.flush();
 	delay(1000);
-
 #endif
 	if(!playbackInProgress && !someHeavyProcessingInProgress){
 		//playingFile=initiateFilePlayback(fileName);

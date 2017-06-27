@@ -41,7 +41,7 @@ public:
 	//This method is required to unpair a paired device
 	void unpair(char *clientId);
 	//This method adds a client to active device list if the device is already paired
-	boolean createDevice(char * phoneId, char * phoneKey, IPAddress phoneIp);
+	boolean createDevice(char * phoneId, char * phoneKey, char * sessionId, IPAddress phoneIp);
 	void remove(DeviceClient * deviceCLient);
 	void encryptRequest();
 	void notify();

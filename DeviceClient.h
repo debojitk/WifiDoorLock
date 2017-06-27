@@ -65,12 +65,20 @@ public:
 		_wsClient = wsClient;
 	}
 
+	char* getSessionId(){
+		return _sessionId;
+	}
+	void setSessionId(char * sessionId){
+		strcpy(this->_sessionId, sessionId);
+	}
+
 private:
 	char _clientId[16];
 	char _clientPairingKey[8];
 	boolean _connected;
 	IPAddress remoteIp;
 	WSClientWrapper _wsClient;
+	char _sessionId[16];
 };
 
 #endif /* DEVICECLIENT_H_ */

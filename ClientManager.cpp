@@ -108,7 +108,7 @@ boolean ClientManager::pair() {
 						_clientStore.print();
 						DEBUG_PRINTLN(F("Pairing successful"));
 						//creating live device
-						boolean deviceCreated=createDevice(receiveCommand.getPhoneId(),receiveCommand.getPhoneKey(),_udpBroadcastClient.client.remoteIP());
+						boolean deviceCreated=createDevice(receiveCommand.getPhoneId(),receiveCommand.getPhoneKey(), receiveCommand.getData(),_udpBroadcastClient.client.remoteIP());
 						retVal=deviceCreated;
 					}
 				}
@@ -138,17 +138,23 @@ void ClientManager::unpair(char *clientId) {
 	_currentClient=NULL;
 }
 
-boolean ClientManager::createDevice(char * phoneId, char * phoneKey, IPAddress phoneIp) {
+boolean ClientManager::createDevice(char * phoneId, char * phoneKey, char *sessionId, IPAddress phoneIp) {
 	DEBUG_PRINTF_P("Creating device: %s, %s, IP:", phoneId, phoneKey);DEBUG_PRINTLN(phoneIp);
 
 	DeviceClient *deviceClient=getDeviceClient(phoneId, phoneKey);
+	if(deviceClient!=NULL && strcmp(deviceClient->getSessionId(), sessionId)==0){
+		DEBUG_PRINTLN(F("device already connected in same session, device is not created"));
+		return false;
+	}
 	if(deviceClient!=NULL){
+		DEBUG_PRINTLN(F("device already connected, so remove the device"));
 		remove(deviceClient);
 	}
 	deviceClient=new DeviceClient();
 	deviceClient->setConnected(true);
 	deviceClient->setClientId(phoneId);
 	deviceClient->setClientPairingKey(phoneKey);
+	deviceClient->setSessionId(sessionId);
 	deviceClient->setRemoteIp(phoneIp);
 	deviceClient->getWsClient().setClientManager(this);
 	//deviceClient->getWsClient().beginSSL(phoneIp.toString(), REMOTE_HEARTBEAT_PORT, "/", "0a e7 9b bf cb 8a 5a 74 2d 43 e7 bc b7 02 cf 95 a1 19 77 c8");
@@ -174,6 +180,7 @@ void ClientManager::remove(DeviceClient * deviceCLient) {
 		if(strcmp(device->getClientId(),deviceCLient->getClientId())==0){
 			DEBUG_PRINTF_P("Device found for removal: %s\n", deviceCLient->getClientId());
 			device->setConnected(false);
+			device->getWsClient().disconnect();
 			_clientList.remove(i);
 			delete(device);
 			_connectedDeviceCount--;
@@ -181,7 +188,6 @@ void ClientManager::remove(DeviceClient * deviceCLient) {
 			break;
 		}
 	}
-
 }
 
 
@@ -218,8 +224,6 @@ void ClientManager::notify() {
 			device->getWsClient().sendTXT(notifyCommand);
 		}
 	}
-
-
 }
 
 /**
@@ -236,44 +240,46 @@ boolean ClientManager::processBroadcastData() {
 		if(parsed && isPaired(commandData)){
             /**
              * Connection handling
-             * 1. If device sends UDP_CONN_BC_REQUEST
+             * 1. If device sends UDP_CONN_BC_REQUEST_DEVICE
              *      then its a device initiated request, and connection established in two step handshaking
-             *      phone sends UDP_CONN_BC_RESPONSE
+             *      phone sends UDP_CONN_BC_RESPONSE_DEVICE
              *      device starts web socket connection
              *      phone receives new web socket connection request
              *      Connection gets established.
-             * 2. If phone sends UDP_CONN_BC_REQUEST
+             * 2. If phone sends UDP_CONN_BC_REQUEST_PHONE
              *      then its a phone initiated request, and connection established in three step handshaking
-             *      device sends UDP_CONN_BC_RESPONSE
-             *      phone responds back with UDP_CONN_BC_RESPONSE:ACK
+             *      device sends UDP_CONN_BC_RESPONSE_PHONE
+             *      phone responds back with UDP_CONN_BC_RESPONSE_PHONE:ACK
              *      device starts web socket connection
              *      phone receives new web socket connection request
              *      Connection gets established.
              */
-			if(strcmp(commands[UDP_CONNECT_BC_REQUEST],commandData.getCommand())==0){
+			if(strcmp(commands[UDP_CONN_BC_REQUEST_PHONE],commandData.getCommand())==0){
 				//p.i.c
-				//create device partially
-				CommandData response;
-				response.setCommand(commands[UDP_CONNECT_BC_RESPONSE]);
-				char responseArr[64];
-				response.buildCommandString(responseArr);
-				sendUDPCommand(responseArr,_udpBroadcastClient.client, _udpBroadcastClient.client.remoteIP(), REMOTE_UDP_PORT);
-				createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), _udpBroadcastClient.client.remoteIP());
-			}else if(strcmp(commands[UDP_CONNECT_BC_RESPONSE],commandData.getCommand())==0){
-				//d.i.c
-				//UDP_CONNECT_BC_RESPONSE:phoneId:phoneKey
-				if(!commandData.getResponse()){
-					createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), _udpBroadcastClient.client.remoteIP());
+				DeviceClient *devClient=getDeviceClient(commandData.getPhoneId(), commandData.getPhoneKey());
+				if(devClient!=NULL && strcmp(devClient->getSessionId(), commandData.getData())==0){
+					DEBUG_PRINTLN(F("device already connected in same session"));
 				}else{
-					//in case of pic this should be the last part of handshaking, i.e., UDP_CONNECT_BC_RESPONSE:ACK
-					//if its ACK the create the websocket connection
-					//else do nothing.
-					if(commandData.getError()){
-						DEBUG_PRINT(F("An error occurred->"));DEBUG_PRINTLN(commandData.getData());
+					CommandData response;
+					response.setCommand(commands[UDP_CONN_BC_RESPONSE_PHONE]);
+					char responseArr[64];
+					response.buildCommandString(responseArr);
+					sendUDPCommand(responseArr,_udpBroadcastClient.client, _udpBroadcastClient.client.remoteIP(), REMOTE_UDP_PORT);
+				}
+			}else if(strcmp(commands[UDP_CONN_BC_RESPONSE_PHONE],commandData.getCommand())==0){
+				//p.i.c
+				//if(if ack then create device else do nothing)
+				if(commandData.getResponse()){
+					if(!commandData.getError()){
+						createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), commandData.getData(),_udpBroadcastClient.client.remoteIP());
 					}else{
-						createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), _udpBroadcastClient.client.remoteIP());
+						//do nothing
 					}
 				}
+			}else if(strcmp(commands[UDP_CONN_BC_RESPONSE_DEVICE],commandData.getCommand())==0){
+				//d.i.c
+				//UDP_CONN_BC_RESPONSE_DEVICE:phoneId:phoneKey
+				createDevice(commandData.getPhoneId(), commandData.getPhoneKey(), commandData.getData(),_udpBroadcastClient.client.remoteIP());
 			}
 		}else{
 			//dont send any response
@@ -329,7 +335,7 @@ boolean ClientManager::initializeUDPConnection() {
 #endif
 			CommandData commandData;
 			//DEBUG_PRINTF_P("Input Command String is: %s\n", commands[UDP_CONNECT_BC_REQUEST]);
-			commandData.setCommand(commands[UDP_CONNECT_BC_REQUEST]);
+			commandData.setCommand(commands[UDP_CONN_BC_REQUEST_DEVICE]);
 			commandData.setPhoneId(_deviceId);
 			commandData.setPhoneKey(_deviceKey);
 			commandData.buildCommandString(_requestBuffer);
@@ -345,37 +351,27 @@ boolean ClientManager::initializeUDPConnection() {
 void ClientManager::disconnectTCPIPConnection(TcpSocket &tcpSocketClient) {
 	if(tcpSocketClient.client.status()){
 		tcpSocketClient.client.stop();
-#ifdef DEBUG
 		DEBUG_PRINTLN(F("TCPIP connection dropped"));
-#endif
 	}
 	tcpSocketClient.socket.connected=false;
 }
 
 boolean ClientManager::establishTCPIPConnection(TcpSocket &tcpSocketClient) {
-#ifdef DEBUG
 	DEBUG_PRINT(F("Attempt tcpip connection, current status: "));	DEBUG_PRINTLN(tcpSocketClient.client.status());
-#endif
 	if(tcpSocketClient.client.status()==0){
 		if (!tcpSocketClient.client.connect(tcpSocketClient.socket.ip, tcpSocketClient.socket.port)) {
-#ifdef DEBUG
 			DEBUG_PRINT(F("tcp/ip connection failed on IP"));	DEBUG_PRINT(tcpSocketClient.socket.ip);DEBUG_PRINT(F(":"));	DEBUG_PRINTLN(tcpSocketClient.socket.port);
-#endif
 			tcpSocketClient.socket.connected=false;
 		}else{
 			tcpSocketClient.socket.connected=true;
-#ifdef DEBUG
 			DEBUG_PRINTLN(F("tcpIpSocketConnected=true"));
-#endif
 		}
 	}
 	return tcpSocketClient.socket.connected;
 }
 
 int ClientManager::sendUDPCommand(const char* command, WiFiUDP &client, IPAddress ip, uint16_t port) {
-#ifdef DEBUG
 	DEBUG_PRINT(F("sendUDPCommand: "));DEBUG_PRINT(command);DEBUG_PRINT(F(", IP: "));DEBUG_PRINTLN(ip);
-#endif
 	client.beginPacket(ip, port);
 	client.write(command);
 	int udpSendResp=client.endPacket();

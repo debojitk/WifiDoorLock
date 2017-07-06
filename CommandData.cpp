@@ -63,7 +63,7 @@ CommandData::~CommandData() {
 boolean CommandData::parseCommandString(char* commnadStr) {
 	boolean retVal=false;
 	DEBUG_PRINTF_P("Parsing input data: %s\n", commnadStr);
-	const char *delim=":,";
+	const char *delim=":";
 	char *respData=strtok(commnadStr, delim);//commandResponse=<phoneId>:<phoneKey>
 	if(respData!=NULL){
 		strcpy(this->command, respData);//COMMAND
@@ -87,7 +87,7 @@ boolean CommandData::parseCommandString(char* commnadStr) {
 								strcpy(this->data, "");
 							}
 						}else if(strcmp(this->data, "NACK")==0){//nack message
-							this->response=false;
+							this->response=true;
 							this->error=true;
 							respData=strtok(NULL,delim);
 							if(respData!=NULL){

@@ -210,18 +210,31 @@ void ClientManager::encryptRequest() {
  * notify is handled via broadcast socket
  */
 void ClientManager::notify() {
-
+	DEBUG_PRINTLN(F("ClientManager::notify"));
 	char notifyCommand[64];
-	strcpy(notifyCommand, commands[NOTIFY]);
-	strcat(notifyCommand, ":");
-	strcat(notifyCommand, _deviceId);
-	strcat(notifyCommand, ":");
-	strcat(notifyCommand, _deviceKey);
+	makeCommand(NOTIFY, notifyCommand);
 	int size=_clientList.size();
 	for(int i=0;i<size;i++){
 		DeviceClient *device=_clientList.get(i);
 		if(device!=NULL){
+			DEBUG_PRINTF_P("Sending notify to %s", notifyCommand);
 			device->getWsClient().sendTXT(notifyCommand);
+		}
+	}
+}
+
+/**
+ * if notification is accepted by one phone then send this info to other connected phones
+ */
+void ClientManager::completeNotificationProcessing(char *receiveingDeviceId){
+	char buffer[64];
+	makeCommand(NOTIFY_ACCPET, buffer);
+	int size=_clientList.size();
+	for(int i=0;i<size;i++){
+		DeviceClient *device=_clientList.get(i);
+		if(strcmp(device->getClientId(),receiveingDeviceId)!=0){
+			DEBUG_PRINTF_P("Sending NOTIFY_ACEPT to %s", device->getClientId());
+			device->getWsClient().sendTXT(buffer);
 		}
 	}
 }
@@ -328,6 +341,7 @@ boolean ClientManager::initializeUDPConnection() {
 	if(_connectedDeviceCount<=0){
 		uint32_t currentTimeStamp=millis();
 		if(currentTimeStamp-_previousTimeStamp>TCP_IP_PING_DELAY){
+			DEBUG_PRINTLN(currentTimeStamp);
 			_previousTimeStamp=currentTimeStamp;
 
 #ifdef DEBUG
@@ -430,8 +444,8 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 		CommandData &receiveCommandData, boolean broadcast, uint16_t timeout, uint16_t repeatCount) {
 	int readBytes=0;
 	boolean matchFound=false;
-	unsigned long endMs=millis()+timeout;
-	while(endMs>millis()){
+	unsigned long startMs=millis();
+	while((millis()-startMs)<timeout){
 		//if extra data is there append with command separated by colon
 		char tempBuffer[256];
 		sendCommandData.buildCommandString(tempBuffer);
@@ -439,7 +453,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 				sendUDPCommand(tempBuffer,socketData.client, socketData.client.remoteIP(), REMOTE_UDP_PORT);//unicasting
 		int udpAttemptCount=0;
 		if(udpSendResp){
-			while(endMs>millis()){
+			while((millis()-startMs)<timeout){
 				char responseBuffer[256];
 				if((readBytes=receiveUDPCommand(socketData,responseBuffer,255))>0){
 					receiveCommandData.parseCommandString(responseBuffer);
@@ -448,6 +462,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 						break;
 					}else{
 						delay(UDP_DELAY);
+						update();
 					}
 				}else{
 					DEBUG_PRINTLN(F("No response yet..."));
@@ -456,6 +471,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 						break;
 					}
 					delay(UDP_DELAY);
+					update();
 				}
 			}
 			if(matchFound){
@@ -464,6 +480,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 			}
 		}else{
 			delay(UDP_DELAY);
+			update();
 		}
 	}
 	return matchFound;
@@ -548,4 +565,13 @@ void ClientManager::webSocketEvent(WSClientWrapper * const client, WStype_t type
 		break;
 	}
 
+}
+
+
+void makeCommand(UDPCommand command, char * buffer){
+	strcpy(buffer,commands[command]);
+	strcat(buffer, ":");
+	strcat(buffer, ClientManager::getDeviceId());
+	strcat(buffer, ":");
+	strcat(buffer, ClientManager::getDeviceKey());
 }

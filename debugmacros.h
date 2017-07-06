@@ -8,7 +8,7 @@
 #ifndef DEBUGMACROS_H_
 #define DEBUGMACROS_H_
 
-#define DEBUG
+//#define DEBUG
 #define INFO
 #ifdef DEBUG
 	#define DEBUG_PRINT(x) 			Serial.print(x)

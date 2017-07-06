@@ -31,6 +31,8 @@
 #define DEFAULT_DEVICE_ID "MY_DEVICE"
 #define DEFAULT_DEVICE_KEY "123456"
 
+
+
 //class DeviceClient;
 class ClientManager {
 public:
@@ -45,9 +47,9 @@ public:
 	void remove(DeviceClient * deviceCLient);
 	void encryptRequest();
 	void notify();
+	void completeNotificationProcessing(char *receiveingDeviceId);
 	boolean update();
 	boolean processBroadcastData();
-	boolean startHeartbeatProcess(char* phoneId, char* phoneKey, int remoteHeartbeatPort, int remoteUdpPort);
 	boolean initializeUDPConnection();
 	void disconnectTCPIPConnection(TcpSocket &tcpSocketClient);
 	boolean establishTCPIPConnection(TcpSocket &tcpSocketClient);
@@ -83,6 +85,9 @@ public:
 
 	void setDeviceId(char *deviceId){
 		strcpy(this->_deviceId, deviceId);
+	}
+	uint8_t getConnectedDeviceCount(){
+		return _connectedDeviceCount;
 	}
 
 	static char *getDeviceId(){
@@ -120,4 +125,7 @@ private:
 			boolean broadcast=true,
 			uint16_t timeout=30000, uint16_t repeatCount=5);
 };
+
+void makeCommand(UDPCommand command, char * buffer);
+
 #endif /* CLIENTMANAGER_H_ */

@@ -116,8 +116,8 @@ uint32_t lastNotificationTimestamp=0;
 
 
 void setup(){
-	Serial.begin(1000000);//20usec/byte
-	//Serial.begin(500000);
+	//Serial.begin(921600);//20usec/byte
+	Serial.begin(1000000);
 	INFO_PRINTLN(F("\nStarting TestESPTransceiverSoftAPV5..."));
 	INFO_PRINTLN(F("Configuring SPI flash"));
 	SPIFFS.begin();
@@ -328,6 +328,7 @@ void loop(void){
 		bufferedRecordFromMic();
 		bufferedRestoreFromFlashToSD();
 	}
+	//gpioPairingInterrupt();
 }
 
 uint32_t intrCounter=0;
@@ -364,7 +365,7 @@ void setupNotifyGPIO(){
 	INFO_PRINTLN(F("setupNotifyGPIO called"));
 	pinMode(BUILTIN_LED, OUTPUT);
 	pinMode(NOTIFY_GPIO_PIN,INPUT_PULLUP);
-	attachInterrupt(NOTIFY_GPIO_PIN, gpioNotifyInterrupt, ONLOW);
+	attachInterrupt(NOTIFY_GPIO_PIN, gpioNotifyInterrupt, ONHIGH);
 }
 
 void setupPairingGPIO(){

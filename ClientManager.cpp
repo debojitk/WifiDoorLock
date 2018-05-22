@@ -180,8 +180,12 @@ void ClientManager::remove(DeviceClient * deviceCLient) {
 		if(strcmp(device->getClientId(),deviceCLient->getClientId())==0){
 			DEBUG_PRINTF_P("Device found for removal: %s\n", deviceCLient->getClientId());
 			device->setConnected(false);
+			DEBUG_PRINTLN(F("Disconnect started"));
 			device->getWsClient().disconnect();
+			_deviceToRemove=false;
+			DEBUG_PRINTLN(F("Disconnect completed"));
 			_clientList.remove(i);
+			DEBUG_PRINT(F("_clientList.size(): "));DEBUG_PRINTLN(_clientList.size());
 			delete(device);
 			_connectedDeviceCount--;
 			DEBUG_PRINT(F("Free heap is: "));DEBUG_PRINTLN(ESP.getFreeHeap());
@@ -314,6 +318,7 @@ boolean ClientManager::update() {
 	//1. Poll all the udpClients to check if any data have arrived or not
 	boolean retVal=false;
 	if(_deviceToRemove){
+		DEBUG_PRINTLN("removing device");
 		DeviceClient *_client=NULL;
 		_client=getDeviceClient(_removeIP);
 		if(_client!=NULL){
@@ -445,6 +450,8 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 	int readBytes=0;
 	boolean matchFound=false;
 	unsigned long startMs=millis();
+
+
 	while((millis()-startMs)<timeout){
 		//if extra data is there append with command separated by colon
 		char tempBuffer[256];
@@ -461,7 +468,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 						matchFound=true;
 						break;
 					}else{
-						delay(UDP_DELAY);
+						customDelay(UDP_DELAY, true);
 						update();
 					}
 				}else{
@@ -470,7 +477,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 					if(udpAttemptCount>=repeatCount){
 						break;
 					}
-					delay(UDP_DELAY);
+					customDelay(UDP_DELAY, true);
 					update();
 				}
 			}
@@ -483,6 +490,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 			update();
 		}
 	}
+
 	return matchFound;
 }
 
@@ -574,4 +582,16 @@ void makeCommand(UDPCommand command, char * buffer){
 	strcat(buffer, ClientManager::getDeviceId());
 	strcat(buffer, ":");
 	strcat(buffer, ClientManager::getDeviceKey());
+}
+
+void customDelay(uint32_t millis1, boolean virtualDelay){
+	if(virtualDelay){
+		DEBUG_PRINT(F("Creating custom delay for "));DEBUG_PRINTLN(millis1);
+		uint32_t currentMs=millis();
+		ESP.wdtDisable();
+		while((millis()-currentMs)<millis1);
+		ESP.wdtEnable(0);
+	}else{
+		delay(millis1);
+	}
 }

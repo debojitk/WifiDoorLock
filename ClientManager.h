@@ -123,9 +123,10 @@ private:
 			CommandData &sendCommandData,
 			CommandData &receiveCommandData,
 			boolean broadcast=true,
-			uint16_t timeout=30000, uint16_t repeatCount=5);
+			uint16_t timeout=30000, uint16_t repeatCount=30);
 };
 
 void makeCommand(UDPCommand command, char * buffer);
+void customDelay(uint32_t millis1, boolean virtualDelay=false);
 
 #endif /* CLIENTMANAGER_H_ */

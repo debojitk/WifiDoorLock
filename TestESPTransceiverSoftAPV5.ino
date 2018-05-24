@@ -316,7 +316,7 @@ void processPairing(){
 
 void loop(void){
 	processNotify();
-
+	processPairing();
 	if(clientManager.initializeUDPConnection()){
 		//this call checks if the device has any data from any client via websocket call
 		clientManager.update();
@@ -328,7 +328,6 @@ void loop(void){
 		bufferedRecordFromMic();
 		bufferedRestoreFromFlashToSD();
 	}
-	//gpioPairingInterrupt();
 }
 
 uint32_t intrCounter=0;
@@ -350,20 +349,20 @@ void gpioPairingInterrupt() {
 	detachInterrupt(PAIR_GPIO_PIN);
 	DEBUG_PRINTLN(F("Pairing Initiated"));
 	pairingRequested=true;
-	processPairing();
+	//processPairing();
 }
 
 
 void setupDoorControl(){
 	INFO_PRINTLN(F("setupDoorControl called"));
-	pinMode(OPEN_DOOR_PIN, OUTPUT);
-	pinMode(CLOSE_DOOR_PIN, OUTPUT);
-	digitalWrite(OPEN_DOOR_PIN, LOW);
-	digitalWrite(CLOSE_DOOR_PIN, LOW);
+	//pinMode(OPEN_DOOR_PIN, OUTPUT);
+	//pinMode(CLOSE_DOOR_PIN, OUTPUT);
+	//digitalWrite(OPEN_DOOR_PIN, LOW);
+	//digitalWrite(CLOSE_DOOR_PIN, LOW);
 }
 void setupNotifyGPIO(){
 	INFO_PRINTLN(F("setupNotifyGPIO called"));
-	pinMode(BUILTIN_LED, OUTPUT);
+	//pinMode(BUILTIN_LED, OUTPUT);
 	pinMode(NOTIFY_GPIO_PIN,INPUT_PULLUP);
 	attachInterrupt(NOTIFY_GPIO_PIN, gpioNotifyInterrupt, ONHIGH);
 }
@@ -374,17 +373,16 @@ void setupPairingGPIO(){
 	attachInterrupt(PAIR_GPIO_PIN, gpioPairingInterrupt, CHANGE);
 }
 
-
-static int arduinoNotified=0;
+//Setting up for active HIGH, so while low it would be inactive
 void setupNotifyArduino(){
-	//pinMode(NOTIFY_ARDUINO_PIN, OUTPUT);
-	//digitalWrite(BUILTIN_LED, arduinoNotified);
-	//digitalWrite(NOTIFY_ARDUINO_PIN, arduinoNotified);
+	pinMode(NOTIFY_ARDUINO_PIN, OUTPUT);
+	digitalWrite(NOTIFY_ARDUINO_PIN, LOW);
+	digitalWrite(BUILTIN_LED, LOW);
 }
 
 void notifyArduino(int state){
-	//digitalWrite(NOTIFY_ARDUINO_PIN, state);
-	//digitalWrite(BUILTIN_LED, state);
+	digitalWrite(NOTIFY_ARDUINO_PIN, state);
+	digitalWrite(BUILTIN_LED, state);
 }
 
 
@@ -403,7 +401,7 @@ void processIncomingWSCommands(CommandData &commandData, WSClientWrapper *wsClie
 #endif
 				tcpIpCommStarted=true;
 				enableTimer1();
-				//notifyArduino(HIGH);
+				notifyArduino(HIGH);
 				someHeavyProcessingInProgress=true;
 				heavyProcessResponseClient=currentWSClient;
 				strcat(responseBuffer,":ACK");

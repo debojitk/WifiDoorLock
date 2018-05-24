@@ -468,7 +468,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 						matchFound=true;
 						break;
 					}else{
-						customDelay(UDP_DELAY, true);
+						delay(UDP_DELAY);
 						update();
 					}
 				}else{
@@ -477,7 +477,7 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 					if(udpAttemptCount>=repeatCount){
 						break;
 					}
-					customDelay(UDP_DELAY, true);
+					delay(UDP_DELAY);
 					update();
 				}
 			}
@@ -588,9 +588,9 @@ void customDelay(uint32_t millis1, boolean virtualDelay){
 	if(virtualDelay){
 		DEBUG_PRINT(F("Creating custom delay for "));DEBUG_PRINTLN(millis1);
 		uint32_t currentMs=millis();
-		ESP.wdtDisable();
+		//ESP.wdtDisable();
 		while((millis()-currentMs)<millis1);
-		ESP.wdtEnable(0);
+		//ESP.wdtEnable(0);
 	}else{
 		delay(millis1);
 	}

@@ -123,7 +123,7 @@ private:
 			CommandData &sendCommandData,
 			CommandData &receiveCommandData,
 			boolean broadcast=true,
-			uint16_t timeout=30000, uint16_t repeatCount=30);
+			uint16_t timeout=30000, uint16_t repeatCount=5);
 };
 
 void makeCommand(UDPCommand command, char * buffer);

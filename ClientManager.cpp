@@ -14,6 +14,7 @@
 
 char ClientManager::_deviceId[16];
 char ClientManager::_deviceKey[8];
+char ClientManager::_deviceType[8];
 
 
 
@@ -37,6 +38,7 @@ void ClientManager::setup(void (*cbFunction)(CommandData &, WSClientWrapper *)) 
 			strcpy(_deviceId,DEFAULT_DEVICE_ID);
 			_clientStore.store(PAIRING_CONFIG_FILE);
 		}
+
 		String strKey=_clientStore.get("device_key");
 		if(!strKey.equals("")){
 			strcpy(_deviceKey,(char *)strKey.c_str());
@@ -47,6 +49,15 @@ void ClientManager::setup(void (*cbFunction)(CommandData &, WSClientWrapper *)) 
 			strcpy(_deviceKey, str.c_str());
 			_clientStore.store(PAIRING_CONFIG_FILE);
 		}
+		//loading deviceType LOCK or COMM (default)
+		String strDeviceType=_clientStore.get("device_type");
+		if(!strDeviceType.equals("")){
+			strcpy(_deviceType,(char *)strDeviceType.c_str());
+		}else{
+			_clientStore.put("device_type", DEVICE_TYPE_COMM);
+			strcpy(_deviceType, DEVICE_TYPE_COMM);
+			_clientStore.store(PAIRING_CONFIG_FILE);
+		}
 
 	}else{
 		_clientStore.put("device_id", DEFAULT_DEVICE_ID);
@@ -54,10 +65,11 @@ void ClientManager::setup(void (*cbFunction)(CommandData &, WSClientWrapper *)) 
 		unsigned short key=(unsigned short)millis();//pairing id, should be returned in response
 		String str(key,10);
 		_clientStore.put("device_key", str);
+		_clientStore.put("device_type", DEVICE_TYPE_COMM);
 		_clientStore.store(PAIRING_CONFIG_FILE);
 		strcpy(_deviceKey, str.c_str());
 	}
-	DEBUG_PRINTF_P("Default Deviceid is: %s, deviceKey is: %s\n", _deviceId, _deviceKey);
+	DEBUG_PRINTF_P("Default Deviceid is: %s, deviceKey is: %s, deviceType is: %s\n", _deviceId, _deviceKey, _deviceType);
 	//setting up udp broadcast socket
 	_udpBroadcastClient.client.begin(LOCAL_UDP_PORT);
 	_udpBroadcastClient.socket.ip=~WiFi.subnetMask() | WiFi.gatewayIP();
@@ -72,6 +84,7 @@ ClientManager::~ClientManager() {
 
 //TODO: to use MAC address as key
 boolean ClientManager::pair() {
+	_pairInProgress=true;
 	char randBuf[8];
 	DEBUG_PRINTLN(F("Enter pairing mode"));
 	boolean retVal=false;
@@ -82,6 +95,7 @@ boolean ClientManager::pair() {
 	sendCommand.setCommand(commands[UDP_PAIR_BROADCAST]);
 	sendCommand.setPhoneId(_deviceId);
 	sendCommand.setPhoneKey(itoa(pairingId, randBuf, 10));
+	sendCommand.setDeviceType(_deviceType);
 
 	//broadcast pairing code
 	boolean udpSendResp=udpTranscieve(_udpBroadcastClient, sendCommand, receiveCommand);
@@ -95,6 +109,7 @@ boolean ClientManager::pair() {
 			sendCommand.setCommand(commands[UDP_PAIR_BROADCAST_ACCEPT]);
 			sendCommand.setPhoneId(_deviceId);
 			sendCommand.setPhoneKey(_deviceKey);
+			sendCommand.setDeviceType(_deviceType);
 			udpSendResp=udpTranscieve(_udpBroadcastClient, sendCommand, receiveCommand, false);
 			if(udpSendResp){
 				if(receiveCommand.getResponse()==true &&
@@ -117,6 +132,7 @@ boolean ClientManager::pair() {
 	}else{
 		DEBUG_PRINTLN(F("No pairable device found"));
 	}
+	_pairInProgress=false;
 	DEBUG_PRINTLN(F("Exiting pairing mode"));
 	return retVal;
 }
@@ -314,7 +330,9 @@ boolean ClientManager::processBroadcastData() {
  */
 boolean ClientManager::update() {
 	//0. poll the udpBroadcastClient to see any incoming connection
-	processBroadcastData();
+	if(!_pairInProgress){
+		processBroadcastData();
+	}
 	//1. Poll all the udpClients to check if any data have arrived or not
 	boolean retVal=false;
 	if(_deviceToRemove){
@@ -357,6 +375,7 @@ boolean ClientManager::initializeUDPConnection() {
 			commandData.setCommand(commands[UDP_CONN_BC_REQUEST_DEVICE]);
 			commandData.setPhoneId(_deviceId);
 			commandData.setPhoneKey(_deviceKey);
+			commandData.setDeviceType(_deviceType);
 			commandData.buildCommandString(_requestBuffer);
 			sendUDPCommand(_requestBuffer,_udpBroadcastClient);
 		}
@@ -464,6 +483,8 @@ boolean ClientManager::udpTranscieve(UdpSocket &socketData, CommandData &sendCom
 				char responseBuffer[256];
 				if((readBytes=receiveUDPCommand(socketData,responseBuffer,255))>0){
 					receiveCommandData.parseCommandString(responseBuffer);
+					DEBUG_PRINT(F("sendCommand: "));DEBUG_PRINT(sendCommandData.getCommand());
+					DEBUG_PRINT(F("receiveCommand: "));DEBUG_PRINT(receiveCommandData.getCommand());
 					if(strcmp(sendCommandData.getCommand(), receiveCommandData.getCommand())==0){
 						matchFound=true;
 						break;
@@ -582,6 +603,8 @@ void makeCommand(UDPCommand command, char * buffer){
 	strcat(buffer, ClientManager::getDeviceId());
 	strcat(buffer, ":");
 	strcat(buffer, ClientManager::getDeviceKey());
+	strcat(buffer, ":");
+	strcat(buffer, ClientManager::getDeviceType());
 }
 
 void customDelay(uint32_t millis1, boolean virtualDelay){

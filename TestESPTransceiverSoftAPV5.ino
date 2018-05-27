@@ -116,8 +116,8 @@ uint32_t lastNotificationTimestamp=0;
 
 
 void setup(){
-	//Serial.begin(921600);//20usec/byte
-	Serial.begin(1000000);
+	Serial.begin(921600);//20usec/byte
+	//Serial.begin(1000000);
 	INFO_PRINTLN(F("\nStarting TestESPTransceiverSoftAPV5..."));
 	INFO_PRINTLN(F("Configuring SPI flash"));
 	SPIFFS.begin();
@@ -125,7 +125,7 @@ void setup(){
 	readConfigFileAndConfigureWifi();
 	//starting up clientManager
 	clientManager.setup(processIncomingWSCommands);
-	setupNotifyGPIO();
+	//setupNotifyGPIO();
 	setupPairingGPIO();
 	setupDoorControl();
 	setupNotifyArduino();
@@ -190,6 +190,7 @@ void readConfigFileAndConfigureWifi(){
 		properties.put("not_at_home","false");
 		properties.put("max_rec_len","200000");
 		properties.put("device_id",DEFAULT_DEVICE_ID);
+		properties.put("device_type",DEVICE_TYPE_COMM);
 
 		properties.store(CONFIG_FILE);
 		INFO_PRINTLN(F("Properties file not found, creating default, restarting"));

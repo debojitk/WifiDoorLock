@@ -30,6 +30,8 @@
 #define PAIRING_CONFIG_FILE "/paired.txt"
 #define DEFAULT_DEVICE_ID "MY_DEVICE"
 #define DEFAULT_DEVICE_KEY "123456"
+#define DEVICE_TYPE_COMM "COMM"
+#define DEVICE_TYPE_LOCK "LOCK"
 
 
 
@@ -96,6 +98,9 @@ public:
 	static char *getDeviceKey(){
 		return _deviceKey;
 	}
+	static char *getDeviceType(){
+			return _deviceType;
+	}
 
 private:
 	LinkedList<DeviceClient *>_clientList=LinkedList<DeviceClient *>();
@@ -107,9 +112,11 @@ private:
 	uint8_t _connectedDeviceCount=0;
 	uint32_t _previousTimeStamp;
 	uint8_t _nextSocketToPoll=0;
+	boolean _pairInProgress=false;
 
 	static char _deviceId[16];
 	static char _deviceKey[8];
+	static char _deviceType[8];
 
 	void (*_commandCallback)(CommandData &, WSClientWrapper *)=0;
 	int sendUDPCommand(const char* command, WiFiUDP &client, IPAddress ip, uint16_t port);

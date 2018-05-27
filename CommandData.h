@@ -90,6 +90,14 @@ public:
 		strcpy(this->phoneKey, phoneKey);
 	}
 
+	char* getDeviceType() {
+		return deviceType;
+	}
+
+	void setDeviceType(const char * deviceType){
+		strcpy(this->deviceType, deviceType);
+	}
+
 	boolean getResponse() {
 		return response;
 	}
@@ -105,6 +113,7 @@ private:
 	char command[30];
 	char phoneId[16];
 	char phoneKey[8];
+	char deviceType[8];
 	char data[256];
 	boolean response=false;//if the response is ACK/NACK, then response is true
 	boolean error=false;//if NACK the error is true, and data contains error message

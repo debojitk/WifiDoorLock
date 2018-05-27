@@ -48,6 +48,7 @@ char commands[][30]={
 CommandData::CommandData() {
 	strcpy(phoneId,"");
 	strcpy(phoneKey,"");
+	strcpy(deviceType,"");
 	strcpy(data,"");
 	response=false;
 	error=false;
@@ -131,6 +132,12 @@ void CommandData::buildCommandString(char* buffer) {
 			strcat(buffer, ClientManager::getDeviceKey());
 		}else{
 			strcat(buffer, this->phoneKey);
+		}
+		strcat(buffer, ":");
+		if(strlen(this->deviceType)==0){
+			strcat(buffer, ClientManager::getDeviceType());
+		}else{
+			strcat(buffer, this->deviceType);
 		}
 		if(this->response){
 			if(this->error){

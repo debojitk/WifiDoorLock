@@ -1,0 +1,7 @@
+mode=station
+softap_ssid=ESPAP1
+station_ssid=debojit-dlink
+station_pwd=India@123
+not_at_home=false
+max_rec_len=204800
+device_type=COMM

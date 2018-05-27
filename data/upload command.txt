@@ -1,0 +1,50 @@
+This uses mkspiffs to upload files to esp flash file system
+Command:
+E:\debojit\electronics project\2016\ide\eclipseArduino\arduinoPlugin\tools\esp8266\mkspiffs\0.2.0>mkspiffs.exe -c "E:\debojit\electronics project\2016\esp8266\esp data loader\data" -p 256 -b 8192 -s 3125248 "E:\debojit\electronics project\2016\esp8266\esp data loader\data\your_project.spiffs.bin"
+
+The command creates a bin file named "E:\debojit\electronics project\2016\esp8266\esp data loader\data\your_project.spiffs.bin" clubbing all files kept in "E:\debojit\electronics project\2016\esp8266\esp data loader\data" folder.
+
+For eclipse:<https://github.com/Sloeber/arduino-eclipse-plugin/issues/628>
+In Eclipse -> Run -> External Tools -> External Tools Configurations:
+
+    Create an "ESP8266 mkspiffs" external tool configuration:
+
+    Name: ESP8266 mkspiffs
+    Location: /path/to/mkspiffs
+    Working Directory: ${workspace_loc:/your_project_folder}
+    Arguments: -c ${workspace_loc}/your_project_folder/data -p 256 -b 8192 -s 3125248 ${workspace_loc}/your_project_folder/your_project.spiffs.bin
+
+    Create an "ESP8266 spiffs upload" external tool configuration:
+
+    Name: ESP8266 spiffs upload
+    Location: /path/to/esptool
+    Working Directory: ${workspace_loc:/your_project_folder}
+    Arguments: -cd none -cb 115200 -cp /dev/ttyUSB0 -vv -ca 0x100000 -cf ${workspace_loc}/your_project_folder/your_project.spiffs.bin
+
+How to run the upload: get into flash upload mode. In nodemcu press and hold flash , while holding flash press reset. Now it is in flash mode. Now it can be run to upload the flash bin file.
+Note use esptool 0.4.9 to show a percentage completion
+    Create a "Wipe Flash" external tool configuration:
+
+    Name: Wipe Flash
+    Location: /path/to/esptool
+    Working Directory: ${workspace_loc:/your_project_folder}
+    Arguments: -cd none -cb 115200 -cp /dev/ttyUSB0 -vvv -ce
+
+
+
+
+Upload command
+--------------
+Starting upload
+using arduino loader
+Starting reset using DTR toggle process
+Toggling DTR
+Continuing to use COM6
+Ending reset
+
+
+Launching E:\debojit\electronics project\2016\ide\eclipseArduino\arduinoPlugin\tools\esp8266\esptool\0.4.8/esptool.exe -cd nodemcu -cb 921600 -cp COM6 -ca 0x00000 -cf E:\debojit\electronics project\2016\ide\eclipseArduino\workspace\TestESPTransceiverSoftAP_SDV5/Release/TestESPTransceiverSoftAP_SDV5.bin 
+Output:
+
+
+

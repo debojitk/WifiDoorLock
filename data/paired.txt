@@ -1,0 +1,4 @@
+device_id=MY_COMM_DEVICE
+pc_device1=123456
+device_key=13020
+device_type=COMM

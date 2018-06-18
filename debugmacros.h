@@ -8,6 +8,9 @@
 #ifndef DEBUGMACROS_H_
 #define DEBUGMACROS_H_
 
+extern "C" {
+	#include "user_interface.h"
+}
 #define DEBUG
 #define INFO
 #ifdef DEBUG

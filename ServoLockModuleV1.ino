@@ -26,24 +26,25 @@
 #define DEFAULT_SOFT_AP_SSID "ESPAP"
 #define CONFIG_FILE "/config.txt"
 
-
+//the following settings work great
 #define LCD_PIN_SCE   5  //D1
 #define LCD_PIN_RESET 4  //D2
 #define LCD_PIN_DC    0  //D3
-#define LCD_PIN_SDIN  2  //D4
+#define LCD_PIN_SDIN  D6  //D4
 #define LCD_PIN_SCLK  14 //D5
 
 #define PROG_VER "Servo/LCD/Lock Module V 1.0"
 #define LCD_LINE_0 "NexGenLockV1"
-#define LCD_LINE_1_CONNECTED " CONNECTED  "
+#define LCD_LINE_1_CONNECTED "CONNECTED"
 #define LCD_LINE_1_DISCONNECTED "DISCONNECTED"
 #define LCD_LINE_1_INITIALIZING "INITIALIZING"
 #define LCD_LINE_1_INITIALIZING_DOTS "------------"
-#define LCD_LINE_1_NO_WIFI "  NO WIFI   "
-#define LCD_LINE_1_SEARCHING " SEARCHING  "
-#define LCD_LINE_1_PAIRING "  PAIRING   "
+#define LCD_LINE_1_NO_WIFI "NO WIFI"
+#define LCD_LINE_1_SEARCHING "SEARCHING"
+#define LCD_LINE_1_PAIRING "PAIRING"
 
-#define PAIR_GPIO_PIN D6
+//while pairing the blue led should glow!
+#define PAIR_GPIO_PIN D4
 
 #define SERVO_ENABLE_PIN D8
 #define SERVO_PWM_PIN D7
@@ -65,15 +66,16 @@ IPAddress softAPIP(192, 168, 4, 1);//way to set gateway ip manually
 Properties properties(10);
 
 uint32_t currentTimeStamp=0, previousTimeStamp=0;
+
 ClientManager clientManager;
+
 WSClientWrapper *currentWSClient;
+
+//declaring lcd
 ESP8266_Nokia5110 lcd = ESP8266_Nokia5110(LCD_PIN_SCLK,LCD_PIN_SDIN,LCD_PIN_DC,LCD_PIN_SCE,LCD_PIN_RESET);//reset is 3.3v,
+
+//declaring servo
 Servo servo;
-
-
-
-boolean tcpIpSocketConnected=false;
-boolean tcpIpCommStarted=false;
 
 
 
@@ -143,7 +145,7 @@ void readConfigFileAndConfigureWifi(){
 
 void setupEspRadioAsSoftAP(const char *ssid){
 	yield();
-	INFO_PRINTLN(F("Configuring ESP radio access point as SOFT_AP mode..."));
+	INFO_PRINTLN(F("Configuring ESP radio access point as SOFT_AP mode..., sleep mode won't work"));
 	WiFi.mode(WIFI_AP);//Access point mode only
 	/* You can remove the password parameter if you want the AP to be open. */
 	WiFi.softAPConfig(softAPIP, softAPIP, IPAddress(255, 255, 255, 0));//use to set custom IP
@@ -197,9 +199,11 @@ void setupEspRadioAsStation(const char *softAPSsid, const char *ssid, const char
 #endif
 	if(wifiStationConnected){
 		writeToLCD(0,1, LCD_LINE_1_SEARCHING);
+		writeToLCD(0,3,ssid);
+		writeToLCD(0,4, WiFi.localIP().toString());
+	}else{
+		setupEspRadioAsSoftAP(softAPSsid);
 	}
-	writeToLCD(0,3,ssid);
-	writeToLCD(0,4, WiFi.localIP().toString());
 
 }
 
@@ -492,13 +496,14 @@ void initLCD(){
 	DEBUG_PRINTLN(F("Initializing LCD Module"));
 	lcd.begin();
 	lcd.clear();
+	lcd.setAlignment(CENTER);
 	lcd.setContrast(0x25);//best contrast
 	writeToLCD(0,0, LCD_LINE_0);
 }
 
 void writeToLCD(int x, int y, String text){
 	lcd.setCursor(x,y);
-	lcd.print(text);
+	lcd.printDynamic(text);
 }
 
 char lastStatus[13];

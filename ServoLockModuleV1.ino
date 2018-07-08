@@ -30,7 +30,7 @@
 #define LCD_PIN_SCE   5  //D1
 #define LCD_PIN_RESET 4  //D2
 #define LCD_PIN_DC    0  //D3
-#define LCD_PIN_SDIN  D6  //D4
+#define LCD_PIN_SDIN  12  //D6
 #define LCD_PIN_SCLK  14 //D5
 
 #define PROG_VER "Servo/LCD/Lock Module V 1.0"
@@ -267,7 +267,7 @@ void setupDoorControl(){
 	INFO_PRINTLN(F("setupDoorControl called"));
 	pinMode(SERVO_ENABLE_PIN, OUTPUT);
 	digitalWrite(SERVO_ENABLE_PIN, LOW);
-	activateAndRunServo(0);
+	activateAndRunServo(135);
 }
 
 void activateAndRunServo(long angle){
@@ -308,9 +308,9 @@ void processIncomingWSCommands(CommandData &commandData, WSClientWrapper *wsClie
 		makeCommand(OPEN_DOOR, responseBuffer);
 		strcat(responseBuffer,":ACK");
 		wifi_set_sleep_type(NONE_SLEEP_T);
-		activateAndRunServo(100);
+		activateAndRunServo(30);
 		delay(1000);
-		activateAndRunServo(0);
+		activateAndRunServo(135);
 		wifi_set_sleep_type(LIGHT_SLEEP_T);
 
 		clientManager.sendWSCommand(responseBuffer, wsClient);

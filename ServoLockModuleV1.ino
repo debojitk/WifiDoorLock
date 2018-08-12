@@ -19,6 +19,9 @@
 #include "SPI.h"
 #include "ClientManager.h"
 #include "Servo.h"
+#include <ArduinoOTA.h>
+#include <ESP8266mDNS.h>
+
 
 //LCD Library
 #include "ESP8266_Nokia5110.h"
@@ -63,7 +66,7 @@ boolean pairingFlowInProgress=false;
 boolean softAPMode=false;
 boolean wifiStationConnected=false;
 char *connectMode="station";//values can be SOFTAP or STATION
-
+boolean heavyTaskInProgress=false;
 
 IPAddress softAPIP(192, 168, 4, 1);//way to set gateway ip manually
 
@@ -90,17 +93,49 @@ void setup(){
 	//Serial.begin(1000000);
 	INFO_PRINT(F("\nStarting "));INFO_PRINTLN(F(PROG_VER));
 	INFO_PRINTLN(F("Configuring SPI flash"));
+	//lcd setup
 	initLCD();
+	//spi filesystem setup
 	SPIFFS.begin();
+	//read from properties and init config
 	readConfigFileAndConfigureWifi();
+	//ota setup
+	setupOTA();
 	//starting up clientManager
 	clientManager.setup(processIncomingWSCommands);
+	//setup pairing
 	setupPairingGPIO();
+	//setup door control servo
 	setupDoorControl();
+
 	currentTimeStamp=previousTimeStamp=millis();
 	wifi_set_sleep_type(LIGHT_SLEEP_T);
 }
 
+
+void setupOTA(){
+	ArduinoOTA.setPassword((const char *)"123456");
+
+	ArduinoOTA.onStart([]() {
+		INFO_PRINTLN(F("Starting OTA update"));
+	});
+	ArduinoOTA.onEnd([]() {
+		INFO_PRINTLN(F("OTA Update Completed"));
+	});
+	ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+		INFO_PRINTF("Progress: %u%%\r\n", (progress / (total / 100)));
+	});
+	ArduinoOTA.onError([](ota_error_t error) {
+		INFO_PRINTF("Error[%u]: ", error);
+		if (error == OTA_AUTH_ERROR) INFO_PRINTLN("Auth Failed");
+		else if (error == OTA_BEGIN_ERROR) INFO_PRINTLN("Begin Failed");
+		else if (error == OTA_CONNECT_ERROR) INFO_PRINTLN("Connect Failed");
+		else if (error == OTA_RECEIVE_ERROR) INFO_PRINTLN("Receive Failed");
+		else if (error == OTA_END_ERROR) INFO_PRINTLN("End Failed");
+	});
+	INFO_PRINTLN(F("Initializing OTA"));
+	ArduinoOTA.begin();
+}
 
 
 void readConfigFileAndConfigureWifi(){
@@ -140,6 +175,7 @@ void readConfigFileAndConfigureWifi(){
 		properties.put("device_id",DEFAULT_DEVICE_ID);
 		properties.put("device_type",DEVICE_TYPE_LOCK);
 		properties.put("servo_length","3");//2 cm
+		properties.put("otapwd","123456");//2 cm
 
 		properties.store(CONFIG_FILE);
 		INFO_PRINTLN(F("Properties file not found, creating default, restarting"));
@@ -247,6 +283,7 @@ void processPairing(){
 boolean blinkLcdStatus=false;
 
 void loop(void){
+	ArduinoOTA.handle();
 	processPairing();
 	if(clientManager.initializeUDPConnection()){
 		//this call checks if the device has any data from any client via websocket call
@@ -255,7 +292,10 @@ void loop(void){
 	}else{
 		updateStatus(LCD_LINE_1_SEARCHING);
 	}
-	delay(2000);
+	//if any heavy process is in progress then don't go to sleep
+	if(!heavyTaskInProgress){
+		delay(2000);
+	}
 }
 
 uint32_t intrCounter=0;
@@ -280,14 +320,14 @@ void setupDoorControl(){
 }
 
 void activateAndRunServo(long angle){
-	Serial.println("servo activating");
+	DEBUG_PRINTLN(F("Servo activating"));
 	digitalWrite(SERVO_ENABLE_PIN, HIGH);//activate servo, transistor base turned on
 	servo.attach(SERVO_PWM_PIN);
 	servo.write(angle);
 	delay(1500);//wait until servo goes to its position
 	servo.detach();
 	digitalWrite(SERVO_ENABLE_PIN,LOW);//deactivate servo, no power
-	Serial.println("servo deactivated");
+	DEBUG_PRINTLN(F("Servo deactivated"));
 }
 
 void setupPairingGPIO(){

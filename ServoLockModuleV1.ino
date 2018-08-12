@@ -60,6 +60,11 @@ char responseBuffer[256];       // a string to send back
 boolean pairingRequested=false;
 boolean pairingFlowInProgress=false;
 
+boolean softAPMode=false;
+boolean wifiStationConnected=false;
+char *connectMode="station";//values can be SOFTAP or STATION
+
+
 IPAddress softAPIP(192, 168, 4, 1);//way to set gateway ip manually
 
 
@@ -112,6 +117,7 @@ void readConfigFileAndConfigureWifi(){
 		if(softapSsid.equals("")){
 			softapSsid=DEFAULT_SOFT_AP_SSID;
 		}
+		strcpy(connectMode, softapSsid.c_str());
 		if(apMode.equals("softap")){
 			setupEspRadioAsSoftAP(softapSsid.c_str());
 		}else{
@@ -132,7 +138,7 @@ void readConfigFileAndConfigureWifi(){
 		properties.put("not_at_home","false");
 		properties.put("max_rec_len","200000");
 		properties.put("device_id",DEFAULT_DEVICE_ID);
-		properties.put("device_type",DEVICE_TYPE_COMM);
+		properties.put("device_type",DEVICE_TYPE_LOCK);
 		properties.put("servo_length","3");//2 cm
 
 		properties.store(CONFIG_FILE);
@@ -143,10 +149,15 @@ void readConfigFileAndConfigureWifi(){
 }
 
 
+/**
+ * find details at
+ * https://github.com/esp8266/Arduino/tree/master/doc/esp8266wifi
+ * https://github.com/esp8266/Arduino/blob/master/doc/esp8266wifi/scan-examples.rst
+ */
 void setupEspRadioAsSoftAP(const char *ssid){
 	yield();
 	INFO_PRINTLN(F("Configuring ESP radio access point as SOFT_AP mode..., sleep mode won't work"));
-	WiFi.mode(WIFI_AP);//Access point mode only
+	WiFi.mode(WIFI_AP_STA);//Access point mode only
 	/* You can remove the password parameter if you want the AP to be open. */
 	WiFi.softAPConfig(softAPIP, softAPIP, IPAddress(255, 255, 255, 0));//use to set custom IP
 	WiFi.softAP(ssid);//starting the soft ap
@@ -154,31 +165,25 @@ void setupEspRadioAsSoftAP(const char *ssid){
 	IPAddress myIP = WiFi.softAPIP();//get the soft AP IP
 	INFO_PRINT(F("AP IP address: "));INFO_PRINTLN(myIP);
 	//!!VVI!!
-	WiFi.disconnect();//disconnect the wifi so that it does not search for wifi host to connect to!
+	WiFi.disconnect();//disconnect the wifi so that it does not search for wifi AP to connect to!
 	//if it is not disconnected it would scan for wifi hosts and reduce performance.
+	softAPMode=true;
 #ifdef INFO
 	WiFi.printDiag(Serial);//printing wifi details
 	INFO_PRINTLN(F("#################"));
 #endif
+
 }
 
-boolean wifiStationConnected=false;
+
 void setupEspRadioAsStation(const char *softAPSsid, const char *ssid, const char * password){
 	INFO_PRINTLN(F("Configuring ESP radio access point as STA mode..."));
-
-	//INFO_PRINTF("Connecting to %s-%s\nConfiguring access point...", ssid, password);
-	/* You can remove the password parameter if you want the AP to be open. */
-	//WiFi.softAP(softAPSsid);
-	//IPAddress myIP = WiFi.softAPIP();
-	//INFO_PRINT(F("AP IP address: "));DEBUG_PRINTLN(myIP);
-
 	WiFi.mode(WIFI_STA);
 	WiFi.begin(ssid, password);
 	uint32_t delayMs=10000+millis();
+	writeToLCD(0,1, LCD_LINE_1_INITIALIZING);
 	while (WiFi.status() != WL_CONNECTED) {
-		writeToLCD(0,1, LCD_LINE_1_INITIALIZING);
 		delay(500);
-		writeToLCD(0,1, LCD_LINE_1_INITIALIZING_DOTS);
 #ifdef INFO
 		INFO_PRINT(".");
 #endif
@@ -192,6 +197,7 @@ void setupEspRadioAsStation(const char *softAPSsid, const char *ssid, const char
 		wifiStationConnected=true;
 	}
 #ifdef INFO
+	INFO_PRINT(F("WiFi Connected status: "));INFO_PRINTLN(wifiStationConnected);
 	INFO_PRINT(F("WiFi ip is: "));INFO_PRINTLN(WiFi.localIP());
 	INFO_PRINTLN(F("#################"));
 	WiFi.printDiag(Serial);
@@ -201,12 +207,16 @@ void setupEspRadioAsStation(const char *softAPSsid, const char *ssid, const char
 		writeToLCD(0,1, LCD_LINE_1_SEARCHING);
 		writeToLCD(0,3,ssid);
 		writeToLCD(0,4, WiFi.localIP().toString());
+
 	}else{
 		setupEspRadioAsSoftAP(softAPSsid);
 	}
 
 }
 
+
+void manageWifi(){
+}
 
 boolean hasIncomingPairingRequest(){
 	if(pairingRequested ){
@@ -259,7 +269,6 @@ void gpioPairingInterrupt() {
 		DEBUG_PRINTLN(F("Pairing Initiated"));
 		pairingRequested=true;
 	}
-	//processPairing();
 }
 
 //Make sure to use external pulldown unless activated digitally

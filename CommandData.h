@@ -46,6 +46,13 @@ enum UDPCommand:uint8_t{
 
 };
 
+enum ConnectionStatus:uint8_t{
+	CONNECTING,
+	CONNECTED,
+	DISCONNECTING,
+	DISCONNECTED
+};
+
 class CommandData {
 public:
 	CommandData();

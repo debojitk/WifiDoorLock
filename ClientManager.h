@@ -69,6 +69,10 @@ public:
 		_commandCallback=cbFunction;
 	}
 
+	void setClientConnectCallback(void (*cbFunction)(uint8_t, ConnectionStatus)){
+		_clientConnectCallback=cbFunction;
+	}
+
 	DeviceClient* getCurrentClient()  {
 		return _currentClient;
 	}
@@ -119,7 +123,10 @@ private:
 	static char _deviceType[8];
 
 	void (*_commandCallback)(CommandData &, WSClientWrapper *)=0;
+	void (*_clientConnectCallback)(uint8_t, ConnectionStatus)=0;
+
 	int sendUDPCommand(const char* command, WiFiUDP &client, IPAddress ip, uint16_t port);
+
 	int sendUDPCommand(const char* command, UdpSocket &socket);
 	int receiveUDPCommand(UdpSocket &socket, char *resBuf, int bufferSize);
 	char * parseCommandData(char * infoStr);

@@ -183,6 +183,7 @@ boolean ClientManager::createDevice(char * phoneId, char * phoneKey, char *sessi
 	_connectedDeviceCount++;
 	DEBUG_PRINTLN(F("Device successfully created"));
 	DEBUG_PRINT(F("Free heap is: "));DEBUG_PRINTLN(ESP.getFreeHeap());
+	_clientConnectCallback(_connectedDeviceCount, CONNECTING);
 	return true;
 
 }
@@ -555,7 +556,7 @@ DeviceClient* ClientManager::getDeviceClient(IPAddress remoteIP) {
 
 
 /**
- * websocket callback
+ * web-socket callback
  */
 void ClientManager::webSocketEvent(WSClientWrapper * const client, WStype_t type, uint8_t * payload, size_t length) {
 	DeviceClient *_client=NULL;
@@ -573,7 +574,7 @@ void ClientManager::webSocketEvent(WSClientWrapper * const client, WStype_t type
 			_client->setConnected(true);
 		}
 		DEBUG_PRINTF_P("[WSc] total device count: %d\n",  _connectedDeviceCount);
-
+		_clientConnectCallback(_connectedDeviceCount, CONNECTED);
 		break;
 	case WStype_TEXT:
 		DEBUG_PRINTF_P("[WSc] get text: %s\n", payload);
@@ -618,3 +619,5 @@ void customDelay(uint32_t millis1, boolean virtualDelay){
 		delay(millis1);
 	}
 }
+
+

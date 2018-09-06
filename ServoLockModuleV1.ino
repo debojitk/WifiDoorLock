@@ -5,6 +5,11 @@
  * wifi_set_sleep_type(LIGHT_SLEEP_T);
  * additional code removed
  *
+ *	HISTORY:
+ *	07-SEP-2018: OTA support added, port 8266
+ *	command: python.exe "{eclipse folder}/arduinoPlugin/packages/esp8266/hardware/esp8266/2.3.0/tools/espota.py" -i "<ip>" -p 8266 --auth="123456" -f "{eclipse project folder}\Release\ServoLockModuleV1.bin"
+ *	07-SEP-2018: Once client device is being connected, sleep would be disabled and enabled again after 10 seconds to ensure any immediate request issued right
+ *	after connect can be served as soon as possible
  */
 
 #include "debugmacros.h"
@@ -53,6 +58,8 @@
 #define SERVO_PWM_PIN D7
 #define SERVO_SHAFT_LENGTH 2
 
+#define DELAY_FOR_DELAY 10*1000 //delay would be enabled after DELAY msecs
+
 //servo displacement to angle derivation
 #define angle(x) (180-2*acos((1.0*x)/(2.0*SERVO_SHAFT_LENGTH)))
 
@@ -65,7 +72,7 @@ boolean pairingFlowInProgress=false;
 
 boolean softAPMode=false;
 boolean wifiStationConnected=false;
-char *connectMode="station";//values can be SOFTAP or STATION
+char connectMode[]="station";//values can be SOFTAP or STATION
 boolean heavyTaskInProgress=false;
 
 IPAddress softAPIP(192, 168, 4, 1);//way to set gateway ip manually
@@ -103,11 +110,11 @@ void setup(){
 	setupOTA();
 	//starting up clientManager
 	clientManager.setup(processIncomingWSCommands);
+	clientManager.setClientConnectCallback(processClientConnect);
 	//setup pairing
 	setupPairingGPIO();
 	//setup door control servo
 	setupDoorControl();
-
 	currentTimeStamp=previousTimeStamp=millis();
 	wifi_set_sleep_type(LIGHT_SLEEP_T);
 }
@@ -294,6 +301,7 @@ void loop(void){
 	}
 	//if any heavy process is in progress then don't go to sleep
 	if(!heavyTaskInProgress){
+		DEBUG_PRINTLN(F("******************************DELAY***********************************"));
 		delay(2000);
 	}
 }
@@ -562,4 +570,39 @@ void updateStatus(const char * status){
 		strcpy(lastStatus,status);
 		writeToLCD(0,1,status);
 	}
+}
+
+uint8_t connectedClientCount=0;
+void processClientConnect(uint8_t connectionCount, ConnectionStatus status){
+	if(status==CONNECTED || status == DISCONNECTED){
+		DEBUG_PRINTLN(F("Connecting new device.....DONE"));
+		connectedClientCount=connectionCount;
+		setTimeout(DELAY_FOR_DELAY, delayEnableISR);
+	}
+	if(status == CONNECTING || status == DISCONNECTING){
+		DEBUG_PRINTLN(F("Connecting new device....."));
+		connectedClientCount=connectionCount;
+		heavyTaskInProgress = true;
+	}
+}
+
+void delayEnableISR(){
+	heavyTaskInProgress = false;
+	DEBUG_PRINTLN(F("Enabling delay....."));
+}
+
+/**
+ * This is a similar setTimeout implementation found in javascript, run a method after few seconds
+ */
+void setTimeout(uint32_t msecs, void (*cbMethod)(void)){
+	uint32_t ticks=(1.0*msecs*1000)/3.2;//As per TIM_DIV265 1 tick = 3.2 usec, calculating how many ticks for msecs microseconds
+	if(timer1_enabled()){
+		timer1_disable();
+		timer1_detachInterrupt();
+	}
+	DEBUG_PRINTLN(F("Enabling timer1"));
+	timer1_attachInterrupt(cbMethod);
+	timer1_enable(TIM_DIV265, TIM_EDGE, TIM_SINGLE);
+	timer1_write(ticks);
+
 }

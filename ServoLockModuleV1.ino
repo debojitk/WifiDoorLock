@@ -10,6 +10,8 @@
  *	command: python.exe "{eclipse folder}/arduinoPlugin/packages/esp8266/hardware/esp8266/2.3.0/tools/espota.py" -i "<ip>" -p 8266 --auth="123456" -f "{eclipse project folder}\Release\ServoLockModuleV1.bin"
  *	07-SEP-2018: Once client device is being connected, sleep would be disabled and enabled again after 10 seconds to ensure any immediate request issued right
  *	after connect can be served as soon as possible
+ *	13-SEP-2018: Battery voltage reading code added, voltage divider of 220k and 68k are installed and the center point is connected to ADC pin for ADC voltage reading
+ *	ADC ref voltage is 1v, and internal resistance is around 220k, but it might vary.
  */
 
 #include "debugmacros.h"
@@ -41,8 +43,9 @@
 #define LCD_PIN_SDIN  12  //D6
 #define LCD_PIN_SCLK  14 //D5
 
-#define PROG_VER "Servo/LCD/Lock Module V 1.0"
-#define LCD_LINE_0 "NexGenLockV1"
+
+#define PROG_VER "NexGenLock v1.1"
+#define LCD_LINE_0 "NexGenLockV1.1"
 #define LCD_LINE_1_CONNECTED "CONNECTED"
 #define LCD_LINE_1_DISCONNECTED "DISCONNECTED"
 #define LCD_LINE_1_INITIALIZING "INITIALIZING"
@@ -351,9 +354,13 @@ void processIncomingWSCommands(CommandData &commandData, WSClientWrapper *wsClie
 	getFreeHeap();
 #endif
 	if(strcmp(commands[HELLO], commandData.getCommand())==0){
+		char percent[6];
+		readADCValue(percent);
 		makeCommand(HELLO, responseBuffer);
 		strcat(responseBuffer,":ACK:");
 		strcat(responseBuffer,PROG_VER);
+		strcat(responseBuffer,", ");
+		strcat(responseBuffer,percent);
 		clientManager.sendWSCommand(responseBuffer, wsClient);
 	}else if(strcmp(commands[RESET], commandData.getCommand())==0){
 		makeCommand(RESET, responseBuffer);
@@ -605,4 +612,18 @@ void setTimeout(uint32_t msecs, void (*cbMethod)(void)){
 	timer1_enable(TIM_DIV265, TIM_EDGE, TIM_SINGLE);
 	timer1_write(ticks);
 
+}
+
+void readADCValue(const char *percent){
+	int val=0;
+	int samples=20;
+	for(int i=0;i<samples;i++){
+		val+=analogRead(A0);
+		delay(20);
+	}
+	val=val/samples;
+	val=(val*100)/1024;
+	itoa(val, (char *)percent, 10);
+	strcat((char *)percent, "%");
+	//Serial.print(F("ADC Value="));Serial.println(analogRead(A0));
 }
